@@ -31,8 +31,8 @@ set_option mvcgen.warning false
 abbrev Car := Nat
 abbrev State := (Car → ℝ) × (Car → ℝ) × (Car → ℝ)
 
-@[simp] def motion (active : Finset Car) : Set Car × (State → State) :=
-  (active, fun (_x, v, a) => (v, a, 0))
+@[simp] def motion : (State → State)
+  | (_x, v, a) => (v, a, 0)
 
 @[simp] def domain (_ : State) : Prop := True
 
@@ -48,7 +48,7 @@ def prog (active : Finset Car) (x v a : Car → ℝ) := do
     active := insert i active
     unless (∀ j ∈ active, i ≠ j →
         Ordered x v a i j ∨ Ordered x v a j i) do abort
-    (x, v, a) ← evolve (motion active) domain (x, v, a)
+    (x, v, a) ← evolve ((active : Set Car), motion) domain (x, v, a)
   return (active, x)
 
 @[simp] def invariant (active : Finset Car)
@@ -74,7 +74,7 @@ def prog (active : Finset Car) (x v a : Car → ℝ) := do
 theorem ordered_preserved (active : Finset Car) (i j : Car)
     (hi : i ∈ active) (hj : j ∈ active) :
     (fun (x, v, a) => Ordered x v a i j)
-    [[evolve (motion active) domain]]
+    [[evolve ((active : Set Car), motion) domain]]
     (fun (x, v, a) => Ordered x v a i j) := by
   apply dC (cut := fun st => aGap i j st ≤ 0)
   · apply dIle (aGap i j) (fun _ => 0)
@@ -96,7 +96,7 @@ theorem ordered_preserved (active : Finset Car) (i j : Car)
 
 theorem motion_preserves_invariant (active : Finset Car) :
     (fun (x, v, a) => invariant active x v a)
-    [[evolve (motion active) domain]]
+    [[evolve ((active : Set Car), motion) domain]]
     (fun (x, v, a) => invariant active x v a) := by
   apply (Ensures.iff_run _ _ _).mpr
   intro (x, v, a) hinv (x', v', a') hevo i hi j hj hij

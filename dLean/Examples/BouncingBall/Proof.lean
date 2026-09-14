@@ -91,6 +91,12 @@ theorem continuous_preserves (hr : 0 ≤ r) :
   · apply downward_preserves
     simp_all
 
+theorem bounce_preserves {g H c x v : ℝ} (hc : 0 ≤ c) (hc1 : c ≤ 1)
+    (hinv : invariant g H (x, v)) : invariant g H (x, -c * v) := by
+  simp_all
+  have : c ^ 2 ≤ 1 := by simp_all [pow_le_one₀]
+  nlinarith
+
 theorem aerodynamic_quantum_safe :
     ∀ g H c r x v, (x ≤ H ∧ v = 0 ∧ 0 ≤ x) ∧ (0 < g ∧ c ≤ 1 ∧ 0 ≤ c ∧ 0 ≤ r) →
       ∀ x_res ∈ SetM.run (prog g c r x v), 0 ≤ x_res ∧ x_res ≤ H := by
@@ -104,9 +110,8 @@ theorem aerodynamic_quantum_safe :
   case vc1.step.isTrue =>
     simp only [WP.pure]
     apply continuous_preserves (by simp_all)
+    apply bounce_preserves (by simp_all) (by simp_all)
     simp_all
-    have : c ^ 2 ≤ 1 := by simp_all [pow_le_one₀]
-    nlinarith
   case vc2.step.isFalse =>
     simp only [WP.pure]
     apply continuous_preserves (by simp_all)
