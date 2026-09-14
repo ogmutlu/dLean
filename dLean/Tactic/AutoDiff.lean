@@ -219,8 +219,8 @@ private def symbolicDerivative (vectorField f : Expr) : MetaM Expr := do
 
 private def autonomousVectorField (semanticOde : Expr) : MetaM Expr := do
   let semanticOde ← instantiateMVars semanticOde
-  unless semanticOde.getAppFn.constName? == some ``Denotable.denotation do
-    throwError "autodiff: expected an ODE obtained through Denotable.denotation"
+  unless semanticOde.getAppFn.constName? == some ``Evolvable.denotation do
+    throwError "autodiff: expected an ODE obtained through Evolvable.denotation"
   let args := semanticOde.getAppArgs
   let vectorField ← lastArg args 0
   let vectorFieldType ← whnf (← inferType vectorField)

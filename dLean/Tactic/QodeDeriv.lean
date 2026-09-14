@@ -11,10 +11,10 @@ through product states, and applies the scalar differentiation rules.
 
 namespace dLean
 open Lean Meta Elab Tactic
-namespace Derivable
+namespace IndexedDeriv
 
 theorem deriv_fst
-    {E₁ E₂ : Type} [Derivable I E₁] [Derivable I E₂]
+    {E₁ E₂ : Type} [IndexedDeriv I E₁] [IndexedDeriv I E₂]
     {active : Set I} {trajectory : ℝ → E₁ × E₂} {rhs : E₁ × E₂}
     {interval : Set ℝ} {t : ℝ}
     (h : has_deriv active trajectory rhs interval t) :
@@ -22,7 +22,7 @@ theorem deriv_fst
   h.1
 
 theorem deriv_snd
-    {E₁ E₂ : Type} [Derivable I E₁] [Derivable I E₂]
+    {E₁ E₂ : Type} [IndexedDeriv I E₁] [IndexedDeriv I E₂]
     {active : Set I} {trajectory : ℝ → E₁ × E₂} {rhs : E₁ × E₂}
     {interval : Set ℝ} {t : ℝ}
     (h : has_deriv active trajectory rhs interval t) :
@@ -38,7 +38,7 @@ theorem hasDerivWithinAt_apply
     HasDerivWithinAt (fun τ => trajectory τ i) (rhs i) interval t :=
   h i hi
 
-end Derivable
+end IndexedDeriv
 
 syntax "qode_deriv_step" : tactic
 
@@ -47,8 +47,8 @@ macro_rules
       `(tactic|
         first
         | assumption
-        | solve_by_elim [Derivable.hasDerivWithinAt_apply,
-            Derivable.deriv_fst, Derivable.deriv_snd,
+        | solve_by_elim [IndexedDeriv.hasDerivWithinAt_apply,
+            IndexedDeriv.deriv_fst, IndexedDeriv.deriv_snd,
             OdeDeriv.hasDerivWithinAt_fst, OdeDeriv.hasDerivWithinAt_snd]
         | (apply OdeDeriv.hasDerivWithinAt_add_apply <;> qode_deriv_step)
         | (apply OdeDeriv.hasDerivWithinAt_sub_apply <;> qode_deriv_step)
@@ -58,10 +58,10 @@ macro_rules
         | (apply OdeDeriv.hasDerivWithinAt_cos_apply <;> qode_deriv_step)
         | (apply OdeDeriv.hasDerivWithinAt_mul_apply <;> qode_deriv_step)
         | (apply OdeDeriv.hasDerivWithinAt_inner_apply <;> qode_deriv_step)
-        | (apply Derivable.hasDerivWithinAt_apply <;>
+        | (apply IndexedDeriv.hasDerivWithinAt_apply <;>
             first
             | assumption
-            | solve_by_elim [Derivable.deriv_fst, Derivable.deriv_snd])
+            | solve_by_elim [IndexedDeriv.deriv_fst, IndexedDeriv.deriv_snd])
         | apply hasDerivWithinAt_const)
 
 /--
@@ -95,7 +95,7 @@ private def inferredDefinitions : TacticM (Array Name) := withMainContext do
   let f ← lastArg args 1
   let fPrime ← lastArg args 0
   let qode ←
-    if semanticOde.getAppFn.constName? == some ``Denotable.denotation then
+    if semanticOde.getAppFn.constName? == some ``Evolvable.denotation then
       lastArg semanticOde.getAppArgs 0
     else
       pure semanticOde

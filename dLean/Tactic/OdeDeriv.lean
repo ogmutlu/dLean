@@ -162,7 +162,7 @@ private def inferredDefinitions : TacticM (Array Name) := withMainContext do
   let f ← lastArg args 1
   let fPrime ← lastArg args 0
   let ode ←
-    if semanticOde.getAppFn.constName? == some ``Denotable.denotation then
+    if semanticOde.getAppFn.constName? == some ``Evolvable.denotation then
       lastArg semanticOde.getAppArgs 0
     else
       pure semanticOde

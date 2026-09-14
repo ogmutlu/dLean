@@ -166,7 +166,7 @@ Add explicit definitions only when the current goal shows that further unfolding
 - If `autodiff` reports an unsupported expression or ODE, provide an explicit derivative and use
   `ode_deriv`, or prove `HasPrime` from the semantic derivative assumptions.
 - If `qode_deriv` cannot find a coordinate derivative, check both that the state is built from
-  supported function/product `Derivable` instances and that the coordinate is in the active set.
+  supported function/product `IndexedDeriv` instances and that the coordinate is in the active set.
 - If arithmetic automation stalls, simplify the named observable and derivative, normalize with
   `ring_nf`, then state the missing sign fact explicitly.
 

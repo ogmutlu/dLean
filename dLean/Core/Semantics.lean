@@ -14,7 +14,7 @@ the results of all possible runs of the program. The monadic structure of
 `SetM` supports sequential composition and nondeterministic choice using
 Lean's `do` notation.
 
-Continuous dynamics are described extensionally by the type `SemanticODE`.
+Continuous dynamics are described by the type `SemanticODE`.
 A `SemanticODE` is a predicate on trajectories and time intervals.
 `evolveSemantic` interprets such a description as a hybrid program.
 The module also proves semantic versions of differential weakening,
