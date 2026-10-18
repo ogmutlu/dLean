@@ -1,8 +1,8 @@
 import dLean.Core.QODE
 import dLean.Tactic.QodeDeriv
 open dLean
-open Std.Do
-set_option mvcgen.warning false
+open Std.WP
+set_option experimental.vcgen true
 
 abbrev Car := Nat
 abbrev State := (Car → ℝ) × (Car → ℝ) × (Car → ℝ)

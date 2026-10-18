@@ -22,7 +22,7 @@ differential cut, and differential invariant rules.
 -/
 
 namespace dLean
-open Std.Do
+open Std.WP
 
 /-- Notation for nondeterministic choice -/
 instance {σ α : Type u} : Union (σ → SetM α) where
@@ -45,7 +45,7 @@ def test (P : Prop) : SetM Unit := fun _ => P
 of `prog`, `post` holds for the result of `prog`.
 -/
 abbrev Box (prog : σ → SetM α) (post : α → Prop) : σ → Prop :=
-  fun st => (wp⟦prog st⟧ (⇓ res => ⌜post res⌝)).down
+  fun st => wp (prog st) post estack⟨⟩
 
 notation:25 "[["p"]] " post => Box p post
 
@@ -69,7 +69,9 @@ theorem iff_run (p : σ → SetM α) (pre : σ → Prop) (post : α → Prop) :
     ∀ st, pre st → ∀ st', st' ∈ SetM.run (p st) → post st' := by rfl
 
 theorem iff_triple (p : σ → SetM α) (pre : σ → Prop) (post : α → Prop) :
-  Ensures p pre post ↔ ∀ st, ⦃⌜pre st⌝⦄ p st ⦃⇓ st' => ⌜post st'⌝⦄ := by rfl
+    Ensures p pre post ↔ ∀ st, ⦃pre st⦄ p st ⦃post⦄ := by
+  simp only [Ensures, Box, Triple.iff]
+  rfl
 
 theorem nondet_choice
     {p q : σ → SetM α} {pre : σ → Prop} {post : α → Prop}
@@ -81,29 +83,29 @@ theorem nondet_choice
 end Ensures
 
 @[spec]
-theorem choose_spec {Q : PostCond α .pure} :
-    ⦃⌜∀ n, (Q.1 n).down⌝⦄ choose α ⦃Q⦄ := by
+theorem choose_spec {Q : α → Prop} :
+    ⦃∀ n, Q n⦄ choose α ⦃Q⦄ := by
   apply Triple.iff.mpr
   intro h n hn
   exact h n
 
 @[spec]
-theorem chooseS_spec {Q : PostCond α .pure} :
-    ⦃⌜∀ n ∈ SetM.run S, (Q.1 n).down⌝⦄ chooseS S ⦃Q⦄ := by
+theorem chooseS_spec {Q : α → Prop} :
+    ⦃∀ n ∈ SetM.run S, Q n⦄ chooseS S ⦃Q⦄ := by
   apply Triple.iff.mpr
   intro h n hn
   exact h n hn
 
 @[spec]
-theorem abort_spec {Q : PostCond α .pure} :
-    ⦃⌜True⌝⦄ abort ⦃Q⦄ := by
+theorem abort_spec {Q : α → Prop} :
+    ⦃True⦄ abort ⦃Q⦄ := by
   apply Triple.iff.mpr
   intro _ res hres
   exact False.elim hres
 
 @[spec]
-theorem test_spec {P : Prop} {Q : PostCond Unit .pure} :
-    ⦃⌜P → (Q.1 ()).down⌝⦄ test P ⦃Q⦄ := by
+theorem test_spec {P : Prop} {Q : Unit → Prop} :
+    ⦃P → Q ()⦄ test P ⦃Q⦄ := by
   apply Triple.iff.mpr
   intro h res hres
   exact h hres
@@ -148,11 +150,11 @@ def evolveSemantic
 @[spec]
 theorem evolveSemantic_spec
     (ode : SemanticODE σ) (domain : σ → Prop) (initial : σ)
-    {Q : PostCond σ .pure} :
-      ⦃⌜∀ duration : ℝ, 0 ≤ duration →
+    {Q : σ → Prop} :
+      ⦃∀ duration : ℝ, 0 ≤ duration →
       ∀ trajectory : ℝ → σ,
       IsEvolution trajectory ode domain initial duration →
-      (Q.1 (trajectory duration)).down⌝⦄
+      Q (trajectory duration)⦄
         evolveSemantic ode domain initial ⦃Q⦄ := by
   apply Triple.iff.mpr
   intro h
@@ -238,7 +240,7 @@ theorem dCut
     Ensures (evolveSemantic ode domain) pre post := by
   intro initial hPre
   refine Triple.iff.mp (evolveSemantic_spec
-    (Q := PostCond.noThrow fun final => ⌜post final⌝) ode domain initial) ?_
+    (Q := fun final => post final) ode domain initial) ?_
   intro duration hDuration trajectory hEvolution
   have hCutAlong : ∀ t ∈ Set.Icc (0 : ℝ) duration, cut (trajectory t) := by
     intro t ht
@@ -353,7 +355,7 @@ theorem dInvariant
         pre (fun st => invariantRel (f st) 0) := by
   intro initial hPre
   refine Triple.iff.mp (evolveSemantic_spec
-    (Q := PostCond.noThrow fun final => ⌜invariantRel (f final) 0⌝)
+    (Q := fun final => invariantRel (f final) 0)
       ode domain initial) ?_
   intro duration hDuration trajectory hEvolution
   have hAnalytic :

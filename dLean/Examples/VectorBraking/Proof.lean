@@ -25,8 +25,9 @@ forces the projection `inner(u, x)` to remain positive and therefore excludes
 -/
 
 open dLean
-open Std.Do
-set_option mvcgen.warning false
+open Std.WP
+set_option experimental.vcgen true
+set_option experimental.intrinsic true
 
 variable {V : Type} [NormedAddCommGroup V] [InnerProductSpace ℝ V]
 open scoped RealInnerProductSpace
@@ -36,14 +37,6 @@ open scoped RealInnerProductSpace
 
 @[simp] def domain : V × ℝ → Prop
   | (_x, v) => 0 ≤ v
-
-def prog (B v : ℝ) (x : V) := do
-  let mut (x, v) := (x, v)
-  let n ← choose ℕ
-  for _ in [:n] do
-    let d ← choose {d : V // ‖d‖ = 1}
-    (x, v) ← evolve (brake (d : V) B) domain (x, v)
-  return x
 
 @[simp] def margin (u : V) (eps B : ℝ) : V × ℝ → ℝ
   | (x, v) => v ^ 2 - 2 * B * ⟪u, x⟫ + eps
@@ -108,30 +101,51 @@ theorem initial_invariant
   rw [hn_inner]
   linarith
 
+@[spec] theorem brakingStep_spec (B : ℝ) (d : V) (st : V × ℝ) :
+    ⦃(0 < B ∧ ‖d‖ = 1) ∧ invariant B st⦄
+    evolve (brake d B) domain st
+    ⦃invariant B⦄ := by
+  constructor
+  intro h
+  exact evolution_preserves d B h.1.1 h.1.2 st h.2
+
+def prog (B v : ℝ) (x : V) := do
+  let mut (x, v) := (x, v)
+  let n ← choose ℕ
+  for _ in [:n] do
+    let d ← choose {d : V // ‖d‖ = 1}
+    (x, v) ← evolve (brake (d : V) B) domain (x, v)
+  return x
+
+def prog' (B v : ℝ) (x : V)
+    requires 0 < B ∧ 0 < v ∧ v ^ 2 / (2 * B) < ‖x‖
+    ensures x_res => x_res ≠ 0
+    := do
+  let mut (x, v) := (x, v)
+  let n ← choose ℕ
+  for _ in [:n]
+      invariant _pref _suff => invariant B (x, v) do
+    let d ← choose {d : V // ‖d‖ = 1}
+    (x, v) ← evolve (brake (d : V) B) domain (x, v)
+  return x
+where finally
+  | spec =>
+    case vc1 =>
+      exact initial_invariant B v x (by assumption)
+    case vc2 =>
+      rcases ‹invariant B (x, v)› with ⟨⟨_, _⟩, u, _, eps, heps, hmargin⟩
+      intro hx
+      have hx' : x = 0 := hx
+      subst x
+      simp only [margin, inner_zero_right, mul_zero, sub_zero] at hmargin
+      nlinarith [sq_nonneg v]
+
+theorem prog_eq_prog' (B v : ℝ) (x : V) : prog B v x = prog' B v x := rfl
+
 theorem vector_braking_safe :
     ∀ B v (x : V),
       0 < B ∧ 0 < v ∧ v ^ 2 / (2 * B) < ‖x‖ →
         ∀ x_res ∈ SetM.run (prog B v x), x_res ≠ 0 := by
   intro B v x hpre x' hrun
-  apply SetM.of_wp_run_mem hrun
-  unfold prog
-  mvcgen
-  intros
-  mvcgen invariants
-  | inv1 => ⇓⟨xs, (x, v)⟩ => ⌜invariant B (x, v)⌝
-  case vc1.step =>
-    intros
-    mvcgen
-    simp only [WP.pure]
-    apply evolution_preserves
-    all_goals grind [invariant]
-  case vc2.vc1.pre =>
-    apply initial_invariant
-    assumption
-  case vc3.vc1.post =>
-    rename V × ℝ => st
-    rename invariant B _ => hinv
-    rcases hinv with ⟨_, _, _, _, _⟩
-    intro _
-    simp_all [margin]
-    nlinarith [sq_nonneg st.2]
+  rw [prog_eq_prog'] at hrun
+  exact (prog'.spec B v x).le_wp hpre x' hrun

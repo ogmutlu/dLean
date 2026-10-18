@@ -15,8 +15,9 @@ nonnegative height with the energy bound `v^2 + 2*g*x <= 2*g*H`.
 -/
 
 open dLean
-open Std.Do
-set_option mvcgen.warning false
+open Std.WP
+set_option experimental.vcgen true
+set_option experimental.intrinsic true
 
 @[simp] def up (g r : ℝ) : ℝ × ℝ → ℝ × ℝ
   | (_x, v) => (v, -g - r * v ^ 2)
@@ -29,16 +30,6 @@ set_option mvcgen.warning false
 
 @[simp] def downDomain : ℝ × ℝ → Prop
   | (x, v) => 0 ≤ x ∧ v ≤ 0
-
-def prog (g c r x v : ℝ) := do
-  let mut (x, v) := (x, v)
-  let n ← choose ℕ
-  for _ in [:n] do
-    if x = 0 then
-      v := -c * v
-    (x, v) ← (evolve (up g r) upDomain ∪
-              evolve (down g r) downDomain) (x, v)
-  return x
 
 @[simp] def energyGap (g H : ℝ) : ℝ × ℝ → ℝ
   | (x, v) => v ^ 2 + 2 * g * x - 2 * g * H
@@ -97,27 +88,53 @@ theorem bounce_preserves {g H c x v : ℝ} (hc : 0 ≤ c) (hc1 : c ≤ 1)
   have : c ^ 2 ≤ 1 := by simp_all [pow_le_one₀]
   nlinarith
 
+@[spec] theorem continuous_spec (g r : ℝ) (st : ℝ × ℝ) :
+    ⦃0 ≤ r⦄
+    (evolve (up g r) upDomain ∪ evolve (down g r) downDomain) st
+    ⦃fun st' => ∀ H, invariant g H st → invariant g H st'⦄ := by
+  refine ⟨?_⟩
+  intro h st' hst' H hH
+  exact continuous_preserves h st hH st' hst'
+
+def prog (g c r x v : ℝ) := do
+  let mut (x, v) := (x, v)
+  let n ← choose ℕ
+  for _ in [:n] do
+    if x = 0 then
+      v := -c * v
+    (x, v) ← (evolve (up g r) upDomain ∪
+              evolve (down g r) downDomain) (x, v)
+  return x
+
+def prog' (g c r x₀ v₀ : ℝ) : SetM ℝ
+    given (H : ℝ)
+    requires (x₀ ≤ H ∧ v₀ = 0 ∧ 0 ≤ x₀) ∧ (0 < g ∧ c ≤ 1 ∧ 0 ≤ c ∧ 0 ≤ r)
+    ensures x_res => 0 ≤ x_res ∧ x_res ≤ H
+    := do
+  let mut (x, v) := (x₀, v₀)
+  let n ← choose ℕ
+  for _ in [:n]
+      invariant _pref _suff => invariant g x₀ (x, v) do
+    if x = 0 then
+      v := -c * v
+    (x, v) ← (evolve (up g r) upDomain ∪
+              evolve (down g r) downDomain) (x, v)
+  return x
+where finally
+  | spec =>
+    case vc1 => simp_all
+    case vc2 =>
+      simp_all
+      nlinarith
+    case vc4 =>
+      rename_i hinv hx hall
+      exact hall x₀ (bounce_preserves (c := c) (by simp_all) (by simp_all) hinv)
+
+theorem prog_eq_prog' (g c r x v : ℝ) : prog g c r x v = prog' g c r x v := rfl
+
 theorem aerodynamic_quantum_safe :
     ∀ g H c r x v, (x ≤ H ∧ v = 0 ∧ 0 ≤ x) ∧ (0 < g ∧ c ≤ 1 ∧ 0 ≤ c ∧ 0 ≤ r) →
       ∀ x_res ∈ SetM.run (prog g c r x v), 0 ≤ x_res ∧ x_res ≤ H := by
   intro g H c r x v hpre res hrun
-  apply SetM.of_wp_run_mem hrun
-  unfold prog
-  mvcgen
-  intros
-  mvcgen invariants
-  | inv1 => ⇓⟨xs, (x, v)⟩ => ⌜invariant g H (x, v)⌝
-  case vc1.step.isTrue =>
-    simp only [WP.pure]
-    apply continuous_preserves (by simp_all)
-    apply bounce_preserves (by simp_all) (by simp_all)
-    simp_all
-  case vc2.step.isFalse =>
-    simp only [WP.pure]
-    apply continuous_preserves (by simp_all)
-    simp_all
-  case vc3.vc1.pre =>
-    simp_all
-  case vc4.vc1.post.success =>
-    simp_all
-    nlinarith
+  rw [prog_eq_prog'] at hrun
+  exact (prog'.spec g c r x v H).le_wp hpre res hrun

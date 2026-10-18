@@ -1,18 +1,39 @@
 ---
 name: dlean-prover
-description: Prove and maintain dLean hybrid-program theorems using SetM weakest preconditions, mvcgen loop invariants, differential cuts and invariants, and ODE or QODE derivative tactics. Use for proof work in the dLean library and its clients, not for general Lean theorem proving.
+description: Prove and maintain dLean hybrid-program theorems using SetM weakest preconditions, vcgen loop invariants, differential cuts and invariants, and ODE or QODE derivative tactics. Use for proof work in the dLean library and its clients, not for general Lean theorem proving.
 ---
 
 # dLean Prover
 
 Prove or maintain the requested theorem in the style supported by the active dLean checkout. This
-skill supplements general Lean skills with dLean-specific semantics, proof rules, and `mvcgen`
+skill supplements general Lean skills with dLean-specific semantics, proof rules, and `vcgen`
 patterns.
 
 Before proving, inspect the relevant modules under `dLean/Core` and `dLean/Tactic`; they are the
 authoritative APIs. Inspect nearby dLean examples when they are available, especially when the task
 asks for the project's established proof style. Do not carry API assumptions across dLean
 checkouts.
+
+## Prefer contracts and inline invariants for new examples
+
+Enable `experimental.vcgen` and `experimental.intrinsic`. State `requires` and `ensures` clauses
+on a program definition and place `invariant pref suff => ...` before the loop's `do` keyword.
+The invariant refers to mutable locals directly. Prove residual contract VCs in
+`where finally | spec => ...`; the generated `prog.spec` is registered as a specification.
+For `SetM`, apply `(prog.spec ...).le_wp hpre result hrun` to recover a membership-based safety
+claim. See the current `Proof.lean` examples for compiled patterns.
+
+Use `given` for logical parameters that occur only in the contract. Such parameters are not
+available inside the program body; BouncingBall's inline invariant uses the original height
+`x0`, while its contract quantifies over the logical upper bound `H`.
+
+Register a `Std.WP.Triple` spec for each continuous-step wrapper, using the analytic preservation
+lemma to prove it. This lets the automatically generated contract proof use `vcgen` without
+`errorOnMissingSpec := false`.
+
+The `ProofMVCGen.lean` variants preserve the original tactic workflow. They explicitly import
+`dLean.Core.SemanticsLegacy` and use `dLean.Legacy.SetM.of_wp_run_mem`. Keep that adapter separate
+from new `Std.WP` contract proofs.
 
 ## Read the program as demonic nondeterminism
 
@@ -26,11 +47,11 @@ unfolding the set monad:
 intro ... result hrun
 apply SetM.of_wp_run_mem hrun
 unfold prog
-mvcgen
+vcgen (errorOnMissingSpec := false)
 ```
 
 The target is now a weakest-precondition obligation. Avoid globally unfolding `SetM`, its monad
-instances, or `SetM.run`: doing so loses the abstraction on which `mvcgen` and the registered specs
+instances, or `SetM.run`: doing so loses the abstraction on which `vcgen` and the registered specs
 operate.
 
 The library already registers `[spec]` rules for:
@@ -39,9 +60,9 @@ The library already registers `[spec]` rules for:
 - `chooseS`: prove it for every member of the chosen set;
 - `abort`: no successful result exists;
 - `test`: assume the tested proposition;
-- `evolveSemantic`, hence `evolve`: prove the continuation for every permitted evolution.
+- `evolveSemantic`: prove the continuation for every permitted evolution.
 
-These theorems are normally used implicitly by `mvcgen`; their absence from the proof script is
+These theorems are normally used implicitly by `vcgen`; their absence from the proof script is
 expected. Ordinary mutable bindings and assignments do not need custom specs.
 
 ## Build the mathematical invariant before running the loop proof
@@ -50,49 +71,46 @@ Identify a predicate strong enough both to survive one iteration and to imply th
 claim. Define it as a named `@[simp] def` when controlled unfolding will help arithmetic and
 structural simplification.
 
-First prove focused helper theorems for the continuous commands. Keep `mvcgen` for imperative
+First prove focused helper theorems for the continuous commands. Keep `vcgen` for imperative
 composition and use dLean's differential rules for evolution. This separates program VCs from the
 mathematics of the invariant.
 
-## State the `mvcgen` loop invariant with the generated state shape
+## State the `vcgen` loop invariant with the generated state shape
 
-After the initial `mvcgen`, introduce the parameters it exposes, then invoke the invariant form:
+Use `Std.WP` and enable the experimental tactic, then generate the loop obligations in one call:
 
 ```lean
+open Std.WP
+set_option experimental.vcgen true
+
 unfold prog
-mvcgen
-intros
-mvcgen invariants
-| inv1 => ⇓⟨xs, state⟩ => ⌜invariant parameters state⌝
+vcgen (errorOnMissingSpec := false) invariants
+| inv1 => fun _pref _suff state => invariant parameters state
 ```
 
-Match `state` to all mutable locals, in declaration order. Examples of generated shapes are:
+The first two invariant arguments are the consumed and remaining elements. Match `state` to all
+mutable locals in declaration order; destructured bindings produce tuples.
 
-`xs` is `mvcgen`'s remaining loop-enumeration state; retain it in the pattern even when the
-mathematical invariant does not mention it. Destructured `let mut` bindings are threaded as tuples,
-and several mutable declarations produce a nested product visible in the generated goal.
+`errorOnMissingSpec := false` leaves unsupported continuous commands as WP obligations for the
+mathematical preservation helpers. This is intentional: prove those obligations rather than
+unfolding the ODE semantics. The `evolveSemantic` spec is registered, but `evolve` wrappers and
+nondeterministic unions need not be unfolded by the tactic.
 
-Do not guess verification-condition numbers from another theorem. Compile after declaring the
-invariant and use the case names Lean reports. Common obligations are:
+Use the generated `vc1`, `vc2`, etc. names from the current goal. In the current examples the
+initial-state VC comes first, the final postcondition second, and the loop-body VCs follow.
+The tactic already introduces loop and choice parameters; do not repeat the old two-stage
+`vcgen; intros; vcgen invariants` pattern.
 
-- `step` or `step.isTrue` / `step.isFalse`: preservation by one loop body or conditional branch;
-- `vc1.pre`: the initial state establishes the invariant;
-- `post` or `post.success`: the invariant implies the returned safety property.
-
-Inside a loop body, another `mvcgen` may be needed to expose an inner `choose`, `chooseS`, `unless`,
-or evolution. A common preservation branch is:
+Before applying a continuous-preservation helper, normalize pure continuations:
 
 ```lean
-case vc1.step =>
-  intros
-  mvcgen
-  simp only [WP.pure]
-  apply continuous_preserves
-  -- establish the helper's precondition from the loop invariant and branch facts
+simp only [SetM.wp_pure, binderNameHint]
+refine continuous_preserves ... _ ?_
+-- establish the helper's precondition from the loop invariant and branch facts
 ```
 
-The exact case name and required `intros` depend on the program. Follow the live goal instead of
-depending on generated binder names.
+Use `refine helper ... ?_` when `apply` unfolds the proposition-based WP too far. Similarly,
+`refine dC (cut := cutPredicate) ?_ ?_` preserves the intended two differential-cut obligations.
 
 ## Prove evolution preservation with dLean rules
 
@@ -146,7 +164,7 @@ Add explicit definitions only when the current goal shows that further unfolding
 
 ## Finish VCs in the local proof style
 
-- Use `simp only [WP.pure]` when a generated VC still contains a nested pure WP before applying an
+- Use `simp only [SetM.wp_pure]` when a generated VC still contains a nested pure WP before applying an
   `Ensures` helper.
 - Use `simp`, `simp_all`, or `grind [definitions]` to expose tuple projections, domains, record-free
   state updates, and invariant structure.
@@ -157,11 +175,11 @@ Add explicit definitions only when the current goal shows that further unfolding
 
 ## Diagnose by layer
 
-- If `mvcgen` stops at a primitive, inspect its `[spec]` theorem in `dLean/Core/Semantics.lean` and
+- If `vcgen` stops at a primitive, inspect its `[spec]` theorem in `dLean/Core/Semantics.lean` and
   ensure the primitive has not been hidden behind an opaque local definition.
-- If a loop invariant pattern does not elaborate, inspect the generated product state after the
-  first `mvcgen`; include every mutable local and the leading `xs` component.
-- If `apply` fails after `mvcgen`, first normalize (`simp [WP.pure]`); then compare the helper theorem's
+- If a loop invariant pattern does not elaborate, inspect the generated product state in the
+  invariant goal; include every mutable local and both list arguments.
+- If `apply` fails after `vcgen`, first normalize (`simp [SetM.wp_pure]`); then compare the helper theorem's
   `Ensures` precondition with the current invariant.
 - If `autodiff` reports an unsupported expression or ODE, provide an explicit derivative and use
   `ode_deriv`, or prove `HasPrime` from the semantic derivative assumptions.

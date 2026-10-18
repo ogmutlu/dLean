@@ -1,79 +1,69 @@
 import Mathlib.Data.Set.Functor
+import Std.WP
 import Std.Tactic.Do
 
 /-!
 # SetMWP
 
-A weakest-precondition interpretation for the set monad `SetM`. Monadic
-`SetM` programs can be thought of as nondeterministic programs where the
-output set contains the results from every possible run of the program. This
-is the demonic interpretation of nondeterminism, so the weakest precondition
-with respect to a given postcondition requires every possible result to
-satisfy that postcondition. Implementing the typeclasses `WP` and `WPMonad`
-enables the usage of `mvcgen` framework in proofs involving monadic
-`SetM` programs.
-
-As an example, `(wp⟦p⟧ (⇓res => ⌜Q res⌝)).down` for a set `p` is defined
-to mean the same as `∀ x ∈ SetM.run p, Q x`. That means every element
-in `p` (in other words every possible result of the nondeterministic
-monadic program `p`) satisfies Q.
+The demonic weakest precondition for `SetM` requires the postcondition to hold
+for every possible result. The `Std.WP` instances let `vcgen` reason about
+nondeterministic programs using ordinary propositions as assertions.
 -/
 
 namespace dLean
-open Std.Do
+open Std.WP Lean.Order
 
-instance : WP SetM .pure where
-  wp xs :=
-    { trans := fun Q => ⌜∀ a, a ∈ SetM.run xs → (Q.1 a).down⌝
-      conjunctiveRaw := by
-        intro Q₁ Q₂
-        change (∀ a ∈ SetM.run xs, (Q₁.1 a).down ∧ (Q₂.1 a).down) ↔
-          (∀ a ∈ SetM.run xs, (Q₁.1 a).down) ∧ ∀ a ∈ SetM.run xs, (Q₂.1 a).down
-        constructor
-        · intro h
-          exact ⟨fun a ha => (h a ha).1, fun a ha => (h a ha).2⟩
-        · rintro ⟨h₁, h₂⟩ a ha
-          exact ⟨h₁ a ha, h₂ a ha⟩ }
+instance : WP (SetM α) α Prop EStack⟨⟩ where
+  wpTrans xs := ⟨fun Q _ => ∀ a ∈ SetM.run xs, Q a⟩
+  wp_trans_monotone _ := fun _ _ _ _ _ hQ h a ha => hQ a (h a ha)
 
-instance : WPMonad SetM .pure where
-  wp_pure a := by
-    ext Q
-    change (∀ x ∈ ({a} : Set _), (Q.1 x).down) ↔ (Q.1 a).down
-    simp
-  wp_bind xs f := by
-    ext Q
-    change (∀ y ∈ SetM.run (xs >>= f), (Q.1 y).down) ↔
-      ∀ x ∈ SetM.run xs, ∀ y ∈ SetM.run (f x), (Q.1 y).down
-    change (∀ y ∈ ⋃ x ∈ SetM.run xs, SetM.run (f x), (Q.1 y).down) ↔ _
-    simp only [Set.mem_iUnion]
-    constructor
-    · intro h x hx y hy
-      exact h y ⟨x, hx, hy⟩
-    · intro h y hy
-      rcases hy with ⟨x, hx, hy⟩
-      exact h x hx y hy
+instance : WPMonad SetM Prop EStack⟨⟩ where
+  toWP _ := inferInstance
+  pure_le_wp_pure a Q _ := by
+    intro h x hx
+    change x ∈ ({a} : Set _) at hx
+    obtain rfl := Set.mem_singleton_iff.mp hx
+    exact h
+  bind_le_wp_bind xs f Q _ := by
+    intro h y hy
+    change y ∈ ⋃ x ∈ SetM.run xs, SetM.run (f x) at hy
+    simp only [Set.mem_iUnion] at hy
+    obtain ⟨x, hx, hy⟩ := hy
+    exact h x hx y hy
 
-theorem SetM.wp_iff_run
-  (p : SetM α) (Q : α → Prop) :
-  ((wp⟦p⟧ (⇓res => ⌜Q res⌝)).down) ↔ (∀ x ∈ SetM.run p, Q x) := by rfl
+instance (xs : SetM α) : WPConjunctive xs where
+  wp_meet_wp_le Q₁ Q₂ _ _ := by
+    intro h a ha
+    have h₁ := (meet_le_left _ _ : _ ⊑ wp xs Q₁ _) h
+    have h₂ := (meet_le_right _ _ : _ ⊑ wp xs Q₂ _) h
+    simpa only [meet_apply, meet_prop_eq_and] using And.intro (h₁ a ha) (h₂ a ha)
+
+@[simp] theorem SetM.wp_pure (a : α) (Q : α → Prop) (E : EStack⟨⟩) :
+    wp (pure a : SetM α) Q E = Q a := by
+  apply propext
+  change (∀ x ∈ ({a} : Set α), Q x) ↔ Q a
+  simp
+
+theorem SetM.wp_iff_run (p : SetM α) (Q : α → Prop) :
+    wp p Q estack⟨⟩ ↔ (∀ x ∈ SetM.run p, Q x) := Iff.rfl
 
 theorem SetM.of_wp_run_mem
     {p : SetM α} {res : α} (hres : res ∈ SetM.run p) (post : α → Prop)
-    (hWP : (wp⟦p⟧ (⇓res => ⌜post res⌝)).down) : post res := by
+    (hWP : wp p post estack⟨⟩) : post res := by
   exact hWP res hres
 
 theorem SetM.wp_orElse
-    (S S' : SetM α) {Q : PostCond α .pure}
-    (hxs : (wp⟦S⟧ Q).down) (hys : (wp⟦S'⟧ Q).down) :
-    (wp⟦S <|> S'⟧ Q).down := by
+    (S S' : SetM α) {Q : α → Prop}
+    (hxs : wp S Q estack⟨⟩) (hys : wp S' Q estack⟨⟩) :
+    wp (S <|> S') Q estack⟨⟩ := by
   intro res hres
   rcases hres with hres | hres
   · exact hxs res hres
   · exact hys res hres
 
-theorem SetM.wp_and (S : SetM α) {P Q : PostCond α .pure}
-    (hP : (wp⟦S⟧ P).down) (hQ : (wp⟦S⟧ Q).down) :
-    (wp⟦S⟧ (P ∧ₚ Q)).down := by
+theorem SetM.wp_and (S : SetM α) {P Q : α → Prop}
+    (hP : wp S P estack⟨⟩) (hQ : wp S Q estack⟨⟩) :
+    wp S (fun a => P a ∧ Q a) estack⟨⟩ := by
   intro res hres
   exact ⟨hP res hres, hQ res hres⟩
 

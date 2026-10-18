@@ -1,6 +1,6 @@
 # dLean
 
-dLean is a shallow embedding of [differential dynamic logic (dL)](https://doi.org/10.1007/978-3-319-63588-0) in Lean 4 for verifying cyber-physical systems. It represents hybrid programs—nondeterministic programs combining discrete and continuous dynamics—as ordinary monadic Lean programs that can be verified using Lean's `mvcgen` framework. This approach scales from scalar systems to vector-valued dynamics and QdL-style multi-agent models while reusing Lean and Mathlib's existing infrastructure. Because LLMs are effective at constructing Lean proofs, dLean proofs are also well suited to LLM-based automation at scale.
+dLean is a shallow embedding of [differential dynamic logic (dL)](https://doi.org/10.1007/978-3-319-63588-0) in Lean 4 for verifying cyber-physical systems. It represents hybrid programs—nondeterministic programs combining discrete and continuous dynamics—as ordinary monadic Lean programs that can be verified using Lean's `vcgen` framework. This approach scales from scalar systems to vector-valued dynamics and QdL-style multi-agent models while reusing Lean and Mathlib's existing infrastructure. Because LLMs are effective at constructing Lean proofs, dLean proofs are also well suited to LLM-based automation at scale.
 
 ## Hybrid programs
 
@@ -69,7 +69,17 @@ It corresponds to the following dL formula:
 
 Quantifying over every member of the resulting set corresponds to the box modality: the postcondition must hold after every possible execution.
 
-To prove the safety theorem, a loop invariant can be supplied to `mvcgen`, which decomposes the monadic program and generates the required verification conditions. Continuous evolution is handled by applying theorems from the dLean library that represent the dL proof rules: `dI` proves differential invariants, `dC` introduces differential cuts, and `dW` derives consequences of the evolution domain.
+The examples use Lean's intrinsic verification syntax: `requires` states the precondition,
+`ensures` states the postcondition, and an inline `invariant` annotates each loop. The definition
+produces a checked `prog.spec` theorem automatically using `vcgen`; remaining obligations are
+proved in `where finally | spec => ...`. BouncingBall also uses `given (H : ℝ)` for a logical
+height bound that is not a program argument. Continuous steps have registered `[spec]` theorems
+proved using `dI`, `dC`, and `dW`.
+
+The original `mvcgen` proof scripts are retained as `ProofMVCGen.lean` and
+`ProofAlternativeMVCGen.lean`, with corresponding `ChallengeMVCGen.lean` files. They import
+`dLean.Core.SemanticsLegacy`, which supplies the `Std.Do` adapter and specs alongside the new
+`Std.WP` framework. Its WP bridge is `dLean.Legacy.SetM.of_wp_run_mem`.
 
 The automatic differentiation tactics discharge the analytic side of these rules and the remaining arithmetic is proved using Lean and Mathlib.
 

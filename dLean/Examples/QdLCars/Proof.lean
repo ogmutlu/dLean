@@ -25,31 +25,20 @@ condition for each new pair, and strict position ordering excludes collisions.
 -/
 
 open dLean
-open Std.Do
-set_option mvcgen.warning false
+open Std.WP
+set_option experimental.vcgen true
+set_option experimental.intrinsic true
 
 abbrev Car := Nat
 abbrev State := (Car → ℝ) × (Car → ℝ) × (Car → ℝ)
 
-@[simp] def motion : (State → State)
-  | (_x, v, a) => (v, a, 0)
+@[simp] def motion (active : Finset Car) : Set Car × (State → State) :=
+  (active, fun (_x, v, a) => (v, a, 0))
 
 @[simp] def domain (_ : State) : Prop := True
 
 @[reducible] def Ordered (x v a : Car → ℝ) (i j : Car) : Prop :=
   x i < x j ∧ v i ≤ v j ∧ a i ≤ a j
-
-def prog (active : Finset Car) (x v a : Car → ℝ) := do
-  let mut active := active
-  let mut (x, v, a) := (x, v, a)
-  let n ← choose ℕ
-  for _ in [:n] do
-    let i ← chooseS {i | i ∉ active}
-    active := insert i active
-    unless (∀ j ∈ active, i ≠ j →
-        Ordered x v a i j ∨ Ordered x v a j i) do abort
-    (x, v, a) ← evolve ((active : Set Car), motion) domain (x, v, a)
-  return (active, x)
 
 @[simp] def invariant (active : Finset Car)
     (x v a : Car → ℝ) : Prop :=
@@ -74,7 +63,7 @@ def prog (active : Finset Car) (x v a : Car → ℝ) := do
 theorem ordered_preserved (active : Finset Car) (i j : Car)
     (hi : i ∈ active) (hj : j ∈ active) :
     (fun (x, v, a) => Ordered x v a i j)
-    [[evolve ((active : Set Car), motion) domain]]
+    [[evolve (motion active) domain]]
     (fun (x, v, a) => Ordered x v a i j) := by
   apply dC (cut := fun st => aGap i j st ≤ 0)
   · apply dIle (aGap i j) (fun _ => 0)
@@ -96,15 +85,54 @@ theorem ordered_preserved (active : Finset Car) (i j : Car)
 
 theorem motion_preserves_invariant (active : Finset Car) :
     (fun (x, v, a) => invariant active x v a)
-    [[evolve ((active : Set Car), motion) domain]]
+    [[evolve (motion active) domain]]
     (fun (x, v, a) => invariant active x v a) := by
-  apply (Ensures.iff_run _ _ _).mpr
+  rw [Ensures.iff_run]
   intro (x, v, a) hinv (x', v', a') hevo i hi j hj hij
   rcases hinv i hi j hj hij with hforw | hback
   · exact Or.inl (ordered_preserved active i j hi hj
       (x, v, a) hforw (x', v', a') hevo)
   · exact Or.inr (ordered_preserved active j i hj hi
       (x, v, a) hback (x', v', a') hevo)
+
+@[spec] theorem motionStep_spec (active : Finset Car) (st : State) :
+    ⦃invariant active st.1 st.2.1 st.2.2⦄
+    evolve (motion active) domain st
+    ⦃fun st => invariant active st.1 st.2.1 st.2.2⦄ := by
+  exact ⟨motion_preserves_invariant active st⟩
+
+def prog (active : Finset Car) (x v a : Car → ℝ) := do
+  let mut active := active
+  let mut (x, v, a) := (x, v, a)
+  let n ← choose ℕ
+  for _ in [:n] do
+    let i ← chooseS {i | i ∉ active}
+    active := insert i active
+    unless (∀ j ∈ active, i ≠ j →
+            Ordered x v a i j ∨ Ordered x v a j i) do abort
+    (x, v, a) ← evolve (motion active) domain (x, v, a)
+  return (active, x)
+
+def prog' (active : Finset Car) (x v a : Car → ℝ)
+    requires invariant active x v a
+    ensures res => ∀ i ∈ res.1, ∀ j ∈ res.1, i ≠ j → res.2 i ≠ res.2 j
+    := do
+  let mut active := active
+  let mut (x, v, a) := (x, v, a)
+  let n ← choose ℕ
+  for _ in [:n]
+      invariant _pref _suff => invariant active x v a do
+    let i ← chooseS {i | i ∉ active}
+    active := insert i active
+    unless (∀ j ∈ active, i ≠ j →
+        Ordered x v a i j ∨ Ordered x v a j i) do abort
+    (x, v, a) ← evolve (motion active) domain (x, v, a)
+  return (active, x)
+where finally
+  | spec => all_goals grind [invariant]
+
+theorem prog_eq_prog' (active : Finset Car) (x v a : Car → ℝ) :
+    prog active x v a = prog' active x v a := rfl
 
 theorem collision_freedom :
     ∀ active x v a,
@@ -114,17 +142,5 @@ theorem collision_freedom :
           let (active', x_res) := res
           ∀ i ∈ active', ∀ j ∈ active', i ≠ j → x_res i ≠ x_res j := by
   intro active x v a hinv res hrun
-  apply SetM.of_wp_run_mem hrun
-  unfold prog
-  mvcgen
-  intros
-  mvcgen invariants
-  | inv1 => ⇓⟨xs, (active, x, v, a)⟩ => ⌜invariant active x v a⌝
-  case vc1.step =>
-    intro _ _
-    mvcgen
-    simp only [WP.pure]
-    apply motion_preserves_invariant
-    grind [invariant]
-  case vc3.vc1.post.success =>
-    grind only [invariant]
+  rw [prog_eq_prog'] at hrun
+  exact (prog'.spec active x v a).le_wp hinv res hrun

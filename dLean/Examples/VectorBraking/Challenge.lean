@@ -1,8 +1,8 @@
 import dLean.Core.ODE
 import dLean.Tactic.AutoDiff
 open dLean
-open Std.Do
-set_option mvcgen.warning false
+open Std.WP
+set_option experimental.vcgen true
 
 variable {V : Type} [NormedAddCommGroup V] [InnerProductSpace ℝ V]
 open scoped RealInnerProductSpace

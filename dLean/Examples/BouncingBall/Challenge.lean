@@ -1,8 +1,9 @@
 import dLean.Core.ODE
 import dLean.Tactic.AutoDiff
 open dLean
-open Std.Do
-set_option mvcgen.warning false
+open Std.WP
+set_option experimental.vcgen true
+set_option experimental.intrinsic true
 
 @[simp] def up (g r : ℝ) : ℝ × ℝ → ℝ × ℝ
   | (_x, v) => (v, -g - r * v ^ 2)

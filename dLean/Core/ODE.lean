@@ -68,7 +68,8 @@ Differential cut: first establish `cut`, then use it as an additional
 evolution-domain assumption when proving `post`.
 -/
 theorem dC
-    [Evolvable α σ] {ode : α} {domain pre cut post : σ → Prop}
+    [Evolvable α σ] {ode : α} {domain pre cut : σ → Prop}
+    ⦃post : σ → Prop⦄
     (hcut : Ensures (evolve ode domain) pre cut)
     (hpost : Ensures
       (evolve ode (fun st => domain st ∧ cut st)) pre post) :
@@ -80,7 +81,8 @@ Differential weakening: every state satisfying the evolution domain also
 satisfies the postcondition.
 -/
 theorem dW
-    [Evolvable α σ] {ode : α} {domain pre post : σ → Prop}
+    [Evolvable α σ] {ode : α} {domain pre : σ → Prop}
+    ⦃post : σ → Prop⦄
     (hdom : ∀ st, domain st → post st) :
     Ensures (evolve ode domain) pre post :=
   SemanticODE.dWeakening hdom
