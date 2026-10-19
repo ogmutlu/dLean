@@ -1,0 +1,27 @@
+[project]
+name = "dlean-prover"
+version = "0.1.0"
+description = "Prepare, run, and judge dLean proof-agent benchmarks"
+requires-python = ">=3.11"
+dependencies = ["fire>=0.7,<0.8", "openai-codex>=0.163,<0.164"]
+
+[project.scripts]
+dlean-prove = "dlean_prover.cli:main"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.414",
+    "ruff>=0.16",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.13"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 80
+
+[tool.ruff.lint]
+extend-select = ["I", "E501"]
+

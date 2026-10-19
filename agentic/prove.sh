@@ -56,11 +56,11 @@ usage() {
 #
 # Examples:
 #   # Complete workflow in one command:
-#   agentic/prove.sh run dLean/Examples/BouncingBall codex --model gpt-6-astra
+#   agentic/prove.sh run dLean/Examples/BouncingBall codex --model gpt-6.1-sol
 #
 #   # Run each stage separately:
 #   agentic/prove.sh prepare dLean/Examples/BouncingBall /tmp/bouncingball-sandbox
-#   agentic/prove.sh agent codex /tmp/bouncingball-sandbox --model gpt-6-astra
+#   agentic/prove.sh agent codex /tmp/bouncingball-sandbox --model gpt-6.1-sol
 #   agentic/prove.sh judge dLean/Examples/BouncingBall /tmp/bouncingball-sandbox/Solution.lean
 #
 # agent options (agent and run):
@@ -76,8 +76,8 @@ usage() {
 #   --unsafe-no-systemd       Invoke Comparator without the documented systemd wrapper.
 #
 # Option forwarding:
-#   --model is passed unchanged as --model to either agent; if omitted, no model
-#   flag is sent. --max-turns is passed only to Claude and has no effect on Codex.
+#   --model is passed unchanged as --model to either agent; if omitted, Codex uses
+#   gpt-6.1-sol and Claude uses its default. --max-turns is passed only to Claude.
 #   --timeout is enforced by the harness, not passed to the agent.
 #
 # Codex launch:
@@ -86,7 +86,7 @@ usage() {
 #   Additional --config arguments enforce a restricted Codex runtime with:
 #   minimal filesystem reads; workspace writes; read access to dependencies,
 #   the Codex runtime, Lean toolchain, and optional Lean skills described below.
-#   Tool network access and web search are disabled. Shells inherit the core
+#   Tool network access and live web search are enabled. Shells inherit the core
 #   environment with PATH set to the Lean toolchain bin plus standard system bins.
 #
 # Claude launch:
@@ -95,7 +95,7 @@ usage() {
 #     [--model MODEL] PROMPT
 #   --tools and --allowedTools are both Bash,Edit,Read,Write,Glob,Grep;
 #   --disallowedTools is mcp__*. --settings enables mandatory sandboxing, forbids
-#   unsandboxed commands, and sets an empty strict network allowlist. It denies
+#   unsandboxed commands, and allows network access. It denies
 #   reads of the source repo, Codex memories/sessions, and Claude project history,
 #   with read exceptions for the workspace, dependencies, and Lean toolchain.
 #
@@ -356,7 +356,7 @@ run_agent() {
   ln -s "$packages" "$workspace/.lake/packages"
 
   printf -v claude_settings \
-    '{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"filesystem":{"denyRead":["%s","%s/.codex/memories","%s/.codex/sessions","%s/.claude/projects"],"allowRead":["%s","%s","%s"]},"network":{"allowedDomains":[],"strictAllowlist":true}}}' \
+    '{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"filesystem":{"denyRead":["%s","%s/.codex/memories","%s/.codex/sessions","%s/.claude/projects"],"allowRead":["%s","%s","%s"]},"network":{"allowedDomains":["*"],"strictAllowlist":false}}}' \
     "$REPO_ROOT" "$HOME" "$HOME" "$HOME" "$workspace" "$packages" "$toolchain_root"
 
   local -a command
@@ -394,8 +394,8 @@ run_agent() {
         --config 'default_permissions="dlean-benchmark"'
         --config "$codex_filesystem"
         --config "$codex_shell_environment"
-        --config 'permissions.dlean-benchmark.network.enabled=false'
-        --config 'web_search="disabled"'
+        --config 'permissions.dlean-benchmark.network.enabled=true'
+        --config 'web_search="live"'
         -C "$agent_cwd"
       )
       [[ -n "$model" ]] && command+=(--model "$model")
@@ -510,6 +510,9 @@ agent_command() {
   shift 2
 
   local model=""
+  if [[ "$agent" == "codex" ]]; then
+    model="gpt-6.1-sol"
+  fi
   local timeout_seconds=600
   local max_turns=100
   while [[ $# -gt 0 ]]; do
@@ -598,6 +601,9 @@ run_command() {
   shift 2
 
   local model=""
+  if [[ "$agent" == "codex" ]]; then
+    model="gpt-6.1-sol"
+  fi
   local timeout_seconds=600
   local max_turns=100
   local output=""

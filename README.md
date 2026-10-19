@@ -69,17 +69,7 @@ It corresponds to the following dL formula:
 
 Quantifying over every member of the resulting set corresponds to the box modality: the postcondition must hold after every possible execution.
 
-The examples use Lean's intrinsic verification syntax: `requires` states the precondition,
-`ensures` states the postcondition, and an inline `invariant` annotates each loop. The definition
-produces a checked `prog.spec` theorem automatically using `vcgen`; remaining obligations are
-proved in `where finally | spec => ...`. BouncingBall also uses `given (H : ℝ)` for a logical
-height bound that is not a program argument. Continuous steps have registered `[spec]` theorems
-proved using `dI`, `dC`, and `dW`.
-
-The original `mvcgen` proof scripts are retained as `ProofMVCGen.lean` and
-`ProofAlternativeMVCGen.lean`, with corresponding `ChallengeMVCGen.lean` files. They import
-`dLean.Core.SemanticsLegacy`, which supplies the `Std.Do` adapter and specs alongside the new
-`Std.WP` framework. Its WP bridge is `dLean.Legacy.SetM.of_wp_run_mem`.
+The examples use Lean's intrinsic verification syntax: `requires` states the precondition, `ensures` states the postcondition, and an inline `invariant` annotates each loop. The definition produces a checked `prog.spec` theorem automatically using `vcgen`; remaining obligations are proved in `where finally | spec => ...`. 
 
 The automatic differentiation tactics discharge the analytic side of these rules and the remaining arithmetic is proved using Lean and Mathlib.
 
@@ -117,7 +107,7 @@ export COMPARATOR_LANDRUN=/absolute/path/to/landrun
 Run the complete workflow from the repository root (it creates the agent workspace under ./benchmark-results):
 
 ```sh
-agentic/prove.sh run dLean/Examples/BouncingBall codex --model gpt-6-astra
+agentic/prove.sh run dLean/Examples/BouncingBall codex --model gpt-6.1-sol
 ```
 
 The stages can also be run separately:
