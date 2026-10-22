@@ -1,5 +1,5 @@
 import dLean.Core.QODE
-import dLean.Tactic.QodeDeriv
+import dLean.Tactic.OdeDeriv
 
 /-!
 # Collision freedom for a growing collection of cars
@@ -67,17 +67,17 @@ theorem ordered_preserved (active : Finset Car) (i j : Car)
     (fun (x, v, a) => Ordered x v a i j) := by
   apply dC (cut := fun st => aGap i j st ≤ 0)
   · apply dIle (aGap i j) (fun _ => 0)
-    · qode_deriv [aGap, motion]
+    · ode_deriv [aGap, motion]
     · grind only [aGap]
     · simp
   · apply dC (cut := fun st => vGap i j st ≤ 0)
     · apply dIle (vGap i j) (vGap' i j)
-      · qode_deriv [vGap', motion]
+      · ode_deriv [vGap', motion]
       · grind only [vGap]
       · grind only [aGap, vGap']
     · apply dC (cut := fun st => xGap i j st < 0)
       · apply dIlt (xGap i j) (xGap' i j)
-        · qode_deriv [xGap', motion]
+        · ode_deriv [xGap', motion]
         · grind only [xGap]
         · grind only [vGap, xGap']
       · apply dW

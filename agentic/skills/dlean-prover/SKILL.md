@@ -139,11 +139,12 @@ apply Ensures.nondet_choice
 · exact right_evolution_preserves ...
 ```
 
-## Choose the derivative tactic that matches the ODE representation
+## Choose the derivative tactic
 
-For ordinary autonomous vector fields:
+For ordinary autonomous vector fields, quantified ODEs, and their simultaneous products:
 
-- `autodiff` computes the scalar Lie derivative and proves the `HasPrime` goal;
+- `autodiff` computes the scalar Lie derivative and proves the `HasPrime` goal, including
+  applications of function-valued coordinates at fixed indices;
 - `autodiff` supports `+`, `-`, multiplication, scalar multiplication, inner products, negation,
   literal natural powers, `Real.sin`, and `Real.cos`;
 - if the derivative function is supplied explicitly, use `ode_deriv` or let `autodiff` delegate to
@@ -153,13 +154,13 @@ For ordinary autonomous vector fields:
 
 For quantified ODEs represented by `Set I × (F → F)`:
 
-- use `qode_deriv` on `HasPrime` goals;
+- use `ode_deriv` on `HasPrime` goals;
 - provide the named gap, projection, and motion definitions needed for simplification, for example
-  `qode_deriv [vGap', motion]`;
+  `ode_deriv [vGap', motion]`;
 - the tactic obtains coordinate derivatives only for active indices, so retain and supply index
   membership facts such as `i ∈ active` and `j ∈ active`.
 
-Both derivative tactics unfold the ODE, domain, observable, and proposed derivative automatically.
+`ode_deriv` unfolds the ODE, domain, observable, and proposed derivative automatically.
 Add explicit definitions only when the current goal shows that further unfolding is required.
 
 ## Finish VCs in the local proof style
@@ -183,7 +184,7 @@ Add explicit definitions only when the current goal shows that further unfolding
   `Ensures` precondition with the current invariant.
 - If `autodiff` reports an unsupported expression or ODE, provide an explicit derivative and use
   `ode_deriv`, or prove `HasPrime` from the semantic derivative assumptions.
-- If `qode_deriv` cannot find a coordinate derivative, check both that the state is built from
+- If `ode_deriv` cannot find a coordinate derivative, check both that the state is built from
   supported function/product `IndexedDeriv` instances and that the coordinate is in the active set.
 - If arithmetic automation stalls, simplify the named observable and derivative, normalize with
   `ring_nf`, then state the missing sign fact explicitly.

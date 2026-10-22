@@ -1,5 +1,5 @@
 import dLean.Core.QODE
-import dLean.Tactic.QodeDeriv
+import dLean.Tactic.OdeDeriv
 open dLean
 open Std.WP
 set_option experimental.vcgen true
@@ -48,17 +48,17 @@ theorem ordered_preserved (active : Finset Car) (i j : Car)
     (fun f => Ordered f i j) := by
   apply dC (cut := fun f => aGap i j f ≤ 0)
   · apply dIle (aGap i j) (fun _ => 0)
-    · qode_deriv [aGap, a, motion]
+    · ode_deriv [aGap, a, motion]
     · grind only [aGap]
     · simp
   · apply dC (cut := fun f => vGap i j f ≤ 0)
     · apply dIle (vGap i j) (vGap' i j)
-      · qode_deriv [vGap, vGap', v, a, motion]
+      · ode_deriv [vGap, vGap', v, a, motion]
       · grind only [vGap]
       · grind only [aGap, vGap']
     · apply dC (cut := fun f => xGap i j f < 0)
       · apply dIlt (xGap i j) (xGap' i j)
-        · qode_deriv [xGap, xGap', x, v, a, motion]
+        · ode_deriv [xGap, xGap', x, v, a, motion]
         · grind only [xGap]
         · grind only [vGap, xGap']
       · apply dW

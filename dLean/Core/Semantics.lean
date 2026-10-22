@@ -1,4 +1,4 @@
-import Mathlib.Data.Real.Basic
+import Mathlib.Basic.Real.Basic
 import Mathlib.Analysis.Calculus.MeanValue
 import Mathlib.Analysis.Calculus.Deriv.MeanValue
 import dLean.Core.SetMWP
@@ -38,7 +38,14 @@ def choose (α : Type u) : SetM α := Set.univ
 def chooseS (S : SetM α) : SetM α := S
 
 /-- On most cases this is not needed and `if` statements can be used instead -/
-def test (P : Prop) : SetM Unit := fun _ => P
+def ensure (P : Prop) : SetM Unit := fun _ => P
+
+abbrev loop (prog : σ → SetM σ) (x : σ) : SetM σ := do
+  let mut x := x
+  let n ← choose ℕ
+  for _ in [:n] do
+    x ← prog x
+  return x
 
 /--
 `Box prog post` is true for a state `st` iff after every successful run
@@ -105,7 +112,7 @@ theorem abort_spec {Q : α → Prop} :
 
 @[spec]
 theorem test_spec {P : Prop} {Q : Unit → Prop} :
-    ⦃P → Q ()⦄ test P ⦃Q⦄ := by
+    ⦃P → Q ()⦄ ensure P ⦃Q⦄ := by
   apply Triple.iff.mpr
   intro h res hres
   exact h hres

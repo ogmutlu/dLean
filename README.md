@@ -85,6 +85,19 @@ lake exe cache get
 lake build
 ```
 
+## Tactic tests
+
+Run the Lean regression tests with:
+
+```sh
+lake build dLean.Tests
+```
+
+The suite checks supplied and synthesized derivatives, scalar arithmetic and trigonometry,
+nested product states, PiLp coordinates and vector literals, squared norms, and simultaneous
+ODE/QODE products. It also checks rejection of incorrect derivatives and inactive-coordinate
+derivatives. Synthesized derivatives are checked against independently written formulas.
+
 ## Proof automation
 
 The benchmark harness in `agentic/prove.sh` prepares a sandbox workspace, runs Codex or Claude Code (only Codex has been tested), and checks the generated `Solution.lean` independently with Lean Comparator. Reference `Proof.lean` files are not copied into the workspace.

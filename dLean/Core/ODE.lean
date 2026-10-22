@@ -57,6 +57,20 @@ instance timeDependentODE
     grind only [SemanticODE.RestrictionClosed, IsIntegralCurveOn.mono]
 
 /--
+Evolve two systems simultaneously on a product state. Both projected trajectories
+satisfy their respective dynamics on the same time interval, so one `evolve` call
+chooses a common duration. This also composes quantified and ordinary ODEs.
+-/
+instance product {α : Type u} {β : Type v} {σ : Type w} {τ : Type z}
+    [Evolvable α σ] [Evolvable β τ] : Evolvable (α × β) (σ × τ) where
+  denotation ode trajectory interval :=
+    Evolvable.denotation ode.1 (fun t => (trajectory t).1) interval ∧
+    Evolvable.denotation ode.2 (fun t => (trajectory t).2) interval
+  rest_closed ode := fun trajectory _ _ hSubset hEvolution =>
+    ⟨Evolvable.rest_closed ode.1 (fun t => (trajectory t).1) hSubset hEvolution.1,
+      Evolvable.rest_closed ode.2 (fun t => (trajectory t).2) hSubset hEvolution.2⟩
+
+/--
 Evolve a state along the trajectories permitted by `ode`, subject to the
 evolution-domain constraint `domain`.
 -/

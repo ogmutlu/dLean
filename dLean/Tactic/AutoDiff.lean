@@ -68,6 +68,8 @@ private partial def powDerivative
 private partial def differentiate
     (coordinates : Array Coordinate) (e : Expr) : MetaM Expr := do
   let e ← instantiateMVars e
+  if e.getAppFn.constName? == some ``Matrix.vecEmpty then
+    return e
   if !dependsOn coordinates e then
     return ← mkZero e
 
@@ -77,6 +79,15 @@ private partial def differentiate
 
   let fn := e.getAppFn
   let args := e.getAppArgs
+  if let some coordinate := coordinates.find? fun coordinate => coordinate.stateVar == fn then
+    if args.any (dependsOn coordinates) then
+      throwError "autodiff: state-dependent indices are not supported"
+    return (mkAppN coordinate.tangent args).headBeta
+  if let .proj typeName 0 struct := fn then
+    if typeName == ``WithLp && args.size == 1 then
+      let idx := args[0]!
+      let dstruct ← differentiate coordinates struct
+      return mkApp (.proj ``WithLp 0 dstruct) idx
   if (fn.constName?.map (·.toString.endsWith ".Real.add")).getD false then
     let left ← lastArg args 1
     let right ← lastArg args 0
@@ -142,7 +153,32 @@ private partial def differentiate
       let exponent ← whnf (← lastArg args 0)
       let .lit (.natVal n) := exponent |
         throwError "autodiff: only powers with a literal natural exponent are supported"
-      powDerivative base (← differentiate coordinates base) n
+      if n == 2 && base.getAppFn.constName? == some ``Norm.norm then
+        let normArg ← lastArg base.getAppArgs 0
+        let dNormArg ← differentiate coordinates normArg
+        mul (← mkRealNat 2) (← inner normArg dNormArg)
+      else
+        powDerivative base (← differentiate coordinates base) n
+  | some ``WithLp.toLp =>
+      let body ← lastArg args 0
+      let dbody ← differentiate coordinates body
+      pure <| mkApp (mkAppN fn args.pop) dbody
+  | some ``WithLp.ofLp =>
+      if args.size == 4 then
+        let vec ← lastArg args 1
+        let idx ← lastArg args 0
+        let dvec ← differentiate coordinates vec
+        pure <| mkApp (mkApp (mkAppN fn args.pop.pop) dvec) idx
+      else
+        let vec ← lastArg args 0
+        let dvec ← differentiate coordinates vec
+        pure <| mkApp (mkAppN fn args.pop) dvec
+  | some ``Matrix.vecCons | some ``Fin.cons =>
+      let head ← lastArg args 1
+      let tail ← lastArg args 0
+      let dhead ← differentiate coordinates head
+      let dtail ← differentiate coordinates tail
+      pure <| mkApp (mkApp (mkAppN fn args.pop.pop) dhead) dtail
   | some ``Real.sin =>
       let argument ← lastArg args 0
       mul (← mkAppM ``Real.cos #[argument]) (← differentiate coordinates argument)
@@ -152,10 +188,13 @@ private partial def differentiate
       mul (← mkAppM ``Neg.neg #[sine])
         (← differentiate coordinates argument)
   | _ =>
-      throwError
-        "autodiff: unsupported state-dependent expression{indentExpr e}\n\
-         Supported operations are +, -, *, scalar multiplication, inner products,\n\
-         negation, natural powers, sin, and cos."
+      if let some unfolded ← unfoldDefinition? e (ignoreTransparency := true) then
+        differentiate coordinates (← simpOnlyNames [] unfolded).expr
+      else
+        throwError
+          "autodiff: unsupported state-dependent expression{indentExpr e}\n\
+           Supported operations are +, -, *, scalar multiplication, inner products,\n\
+           squared norms, PiLp vectors, negation, natural powers, sin, and cos."
 
 private def headDefinition? (e : Expr) : Option Name :=
   e.getAppFn.constName?.filter fun name =>
@@ -184,6 +223,53 @@ private def simplifyDefinition (definition : Expr) (e : Expr) : MetaM Expr := do
       normalizeRealOperations (← simpOnlyNames [] unfolded).expr
   | none => normalizeRealOperations (← simpOnlyNames [] e).expr
 
+private partial def withStateVars
+    (ty : Expr)
+    (k : Expr → Array Expr → (Expr → MetaM (Array Expr)) → MetaM Expr) :
+    MetaM Expr := do
+  let tyWhnf ← whnf ty
+  if tyWhnf.isAppOfArity ``Prod 2 then
+    let #[leftType, rightType] := tyWhnf.getAppArgs |
+      throwError "autodiff: malformed product state type"
+    withStateVars leftType fun leftTuple leftVars leftProject =>
+      withStateVars rightType fun rightTuple rightVars rightProject => do
+        let tuple ← mkAppM ``Prod.mk #[leftTuple, rightTuple]
+        let project (st : Expr) : MetaM (Array Expr) := do
+          let fst ← mkAppM ``Prod.fst #[st]
+          let snd ← mkAppM ``Prod.snd #[st]
+          return (← leftProject fst) ++ (← rightProject snd)
+        k tuple (leftVars ++ rightVars) project
+  else
+    withLocalDeclD `x ty fun x =>
+      k x #[x] (fun st => pure #[st])
+
+private partial def extractCoordinates
+    (shape odeExpr : Expr) : MetaM (Array Coordinate) := do
+  if shape.isAppOfArity ``Prod.mk 4 then
+    let shapeArgs := shape.getAppArgs
+    let leftShape ← lastArg shapeArgs 1
+    let rightShape ← lastArg shapeArgs 0
+    let odeWhnf ← whnf odeExpr
+    unless odeWhnf.isAppOfArity ``Prod.mk 4 do
+      throwError "autodiff: the vector field did not reduce to a product{indentExpr odeWhnf}"
+    let odeArgs := odeWhnf.getAppArgs
+    let leftOde ← lastArg odeArgs 1
+    let rightOde ← lastArg odeArgs 0
+    return (← extractCoordinates leftShape leftOde) ++
+      (← extractCoordinates rightShape rightOde)
+  else
+    let odeExpr ←
+      if odeExpr.isAppOfArity ``Prod.fst 3 || odeExpr.isAppOfArity ``Prod.snd 3 then
+        let arg ← lastArg odeExpr.getAppArgs 0
+        if let some unfoldedArg ← unfoldDefinition? arg (ignoreTransparency := true) then
+          pure <| mkApp (mkAppN odeExpr.getAppFn odeExpr.getAppArgs.pop) unfoldedArg
+        else
+          pure odeExpr
+      else
+        pure odeExpr
+    let tangent ← normalizeRealOperations (← simpOnlyNames [] odeExpr).expr
+    return #[⟨shape, tangent⟩]
+
 private def symbolicDerivative (vectorField f : Expr) : MetaM Expr := do
   let fType ← whnf (← inferType f)
   let .forallE _ stateType resultType _ := fType |
@@ -191,73 +277,80 @@ private def symbolicDerivative (vectorField f : Expr) : MetaM Expr := do
   unless ← isDefEq resultType (mkConst ``Real) do
     throwError "autodiff: expected a function returning Real, got{indentExpr resultType}"
 
-  let stateTypeWhnf ← whnf stateType
-  if stateTypeWhnf.isAppOfArity ``Prod 2 then
-    let #[leftType, rightType] := stateTypeWhnf.getAppArgs |
-      throwError "autodiff: malformed product state type"
-    withLocalDeclD `x leftType fun x =>
-      withLocalDeclD `v rightType fun v => do
-        let state ← mkAppM ``Prod.mk #[x, v]
-        let fBody ← simplifyDefinition f (mkApp f state)
-        let odeBody ← simplifyDefinition vectorField (mkApp vectorField state)
-        unless odeBody.isAppOfArity ``Prod.mk 4 do
-          throwError "autodiff: the vector field did not reduce to a product{indentExpr odeBody}"
-        let odeArgs := odeBody.getAppArgs
-        let dx ← lastArg odeArgs 1
-        let dv ← lastArg odeArgs 0
-        let body ← differentiate #[⟨x, dx⟩, ⟨v, dv⟩] fBody
-        let coordinateFunction ← mkLambdaFVars #[x, v] body
-        withLocalDeclD `st stateType fun st => do
-          let sx ← mkAppM ``Prod.fst #[st]
-          let sv ← mkAppM ``Prod.snd #[st]
-          mkLambdaFVars #[st] (mkAppN coordinateFunction #[sx, sv]).headBeta
-  else
+  withStateVars stateType fun state vars project => do
+    let fBody ← simplifyDefinition f (mkApp f state)
+    let odeBody ← simplifyDefinition vectorField (mkApp vectorField state)
+    let coordinates ← extractCoordinates state odeBody
+    let body ← differentiate coordinates fBody
+    let coordinateFunction ← mkLambdaFVars vars body
     withLocalDeclD `st stateType fun st => do
-      let tangent ← simplifyDefinition vectorField (mkApp vectorField st)
-      let body ← simplifyDefinition f (mkApp f st)
-      mkLambdaFVars #[st] (← differentiate #[⟨st, tangent⟩] body)
+      let projections ← project st
+      mkLambdaFVars #[st] (mkAppN coordinateFunction projections).headBeta
+
+-- This is a candidate field for symbolic differentiation, not an assertion that
+-- inactive QODE coordinates have derivatives. `ode_deriv` checks every use.
+private partial def vectorFieldFromInstance (instanceExpr ode : Expr) : MetaM Expr := do
+  let instanceExpr ← instantiateMVars instanceExpr
+  match instanceExpr.getAppFn.constName? with
+  | some ``ODE => whnf ode
+  | some ``QODE => whnf (← mkAppM ``Prod.snd #[ode])
+  | some ``product =>
+      let args := instanceExpr.getAppArgs
+      let left ← vectorFieldFromInstance (← lastArg args 1) (← mkAppM ``Prod.fst #[ode])
+      let right ← vectorFieldFromInstance (← lastArg args 0) (← mkAppM ``Prod.snd #[ode])
+      let instanceType ← whnf (← inferType instanceExpr)
+      let stateType ← lastArg instanceType.getAppArgs 0
+      withLocalDeclD `st stateType fun st => do
+        let leftState ← mkAppM ``Prod.fst #[st]
+        let rightState ← mkAppM ``Prod.snd #[st]
+        mkLambdaFVars #[st] (← mkAppM ``Prod.mk #[mkApp left leftState, mkApp right rightState])
+  | some ``timeDependentODE =>
+      throwError "autodiff: time-dependent vector fields are not yet supported"
+  | _ =>
+      throwError "autodiff: unsupported Evolvable instance{indentExpr instanceExpr}"
 
 private def autonomousVectorField (semanticOde : Expr) : MetaM Expr := do
   let semanticOde ← instantiateMVars semanticOde
   unless semanticOde.getAppFn.constName? == some ``Evolvable.denotation do
     throwError "autodiff: expected an ODE obtained through Evolvable.denotation"
   let args := semanticOde.getAppArgs
-  let vectorField ← lastArg args 0
-  let vectorFieldType ← whnf (← inferType vectorField)
-  let .forallE _ stateType resultType _ := vectorFieldType |
-    throwError "autodiff: expected an autonomous vector field"
-  unless ← isDefEq stateType resultType do
-    throwError "autodiff: time-dependent vector fields are not yet supported"
-  pure vectorField
-
-private def runOdeDeriv : TacticM Unit := do
-  evalTactic (← `(tactic| ode_deriv))
+  vectorFieldFromInstance (← lastArg args 1) (← lastArg args 0)
 
 /--
 `autodiff` computes and assigns `?f'` in a `HasPrime ode domain f ?f'` goal,
 then proves the resulting derivative equation using `ode_deriv`.
 
-It supports autonomous vector-field ODEs and scalar expressions built from
+It supports autonomous ODEs, QODEs, and their products, with scalar expressions built from
 addition, subtraction, multiplication, scalar multiplication, inner products,
-negation, natural powers, sine, and cosine. If the derivative is already
-supplied, `autodiff` instead applies `ode_deriv` directly.
+squared norms, PiLp vectors, negation, natural powers, sine, and cosine. If the
+derivative is already supplied, `autodiff` instead applies `ode_deriv` directly.
+Indexed applications must use state-independent indices. Their derivative proofs
+require membership in the corresponding active set.
 -/
-elab "autodiff" : tactic => withMainContext do
-  let goal ← getMainGoal
-  let target ← instantiateMVars (← goal.getType)
-  unless target.getAppFn.constName? == some ``HasPrime do
-    throwError "autodiff: expected a HasPrime goal, got{indentExpr target}"
-  let args := target.getAppArgs
-  let semanticOde ← lastArg args 3
-  let f ← lastArg args 1
-  let fPrime ← lastArg args 0
-  match fPrime with
-  | .mvar fPrimeGoal =>
-      let vectorField ← autonomousVectorField semanticOde
-      let derivative ← symbolicDerivative vectorField f
-      fPrimeGoal.assign derivative
-      runOdeDeriv
-  | _ => runOdeDeriv
+syntax "autodiff" : tactic
+syntax "autodiff" " [" term,* "]" : tactic
+
+private def runAutoDiff (definitions : Array (TSyntax `term)) : TacticM Unit :=
+  withMainContext do
+    let goal ← getMainGoal
+    let target ← instantiateMVars (← goal.getType)
+    unless target.getAppFn.constName? == some ``HasPrime do
+      throwError "autodiff: expected a HasPrime goal, got{indentExpr target}"
+    let args := target.getAppArgs
+    let semanticOde ← lastArg args 3
+    let f ← lastArg args 1
+    let fPrime ← lastArg args 0
+    match fPrime with
+    | .mvar fPrimeGoal =>
+        let vectorField ← autonomousVectorField semanticOde
+        let derivative ← symbolicDerivative vectorField f
+        fPrimeGoal.assign derivative
+        dLean.runOdeDeriv definitions
+    | _ => dLean.runOdeDeriv definitions
+
+elab_rules : tactic
+  | `(tactic| autodiff) => runAutoDiff #[]
+  | `(tactic| autodiff [$definitions,*]) => runAutoDiff definitions
 
 end AutoDiff
 end dLean

@@ -1,8 +1,6 @@
 import dLean.Core.ODE
-import dLean.Tactic.AutoDiff
+import Mathlib.Analysis.InnerProductSpace.Calculus
 open dLean
-open Std.WP
-set_option experimental.vcgen true
 
 variable {V : Type} [NormedAddCommGroup V] [InnerProductSpace ℝ V]
 open scoped RealInnerProductSpace
