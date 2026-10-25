@@ -189,3 +189,9 @@ Add explicit definitions only when the current goal shows that further unfolding
 - If arithmetic automation stalls, simplify the named observable and derivative, normalize with
   `ring_nf`, then state the missing sign fact explicitly.
 
+### IMPORTANT
+
+- use `apply` instead of `refine` where possible
+- use `for` loops in hybrid programs instead of Set notation where possible
+- avoid dot notation like `st.1.2`, unpack them with e.g. `let`
+- use intrinsic vcgen where possible
