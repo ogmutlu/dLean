@@ -1,4 +1,4 @@
-import dLean.Examples.FM09.Challenge
+import dLean.Examples.FM09.Model
 import dLean.Tactic.OdeDeriv
 
 /-!
@@ -6,6 +6,8 @@ import dLean.Tactic.OdeDeriv
 
 Proofs for `Challenge.lean`, following the phase verification plan AC1–AC7.
 The AC1 phase contracts also yield the complete NTRM safety theorem.
+The shared model is imported from `Model.lean`; `Challenge.lean` is not imported.
+Comparator checks the independent proofs under the same names in namespace `FM09`.
 -/
 
 open dLean
@@ -14,7 +16,7 @@ open scoped RealInnerProductSpace
 set_option experimental.vcgen true
 set_option experimental.intrinsic true
 
-namespace FM09.Proofs
+namespace FM09
 
 @[simp] theorem perp_sub (u v : Vec2) : perp (u - v) = perp u - perp v := by
   ext i
@@ -195,8 +197,9 @@ where finally
 theorem ntrm_safe :
     ∀ (p : ℝ) (x d y e : Vec2), Separated p x y →
       ∀ res ∈ SetM.run (ntrm p x d y e),
-        let (xr, yr) := res
-        Separated p xr yr := by
+        let x_res := res.1
+        let y_res := res.2
+        Separated p x_res y_res := by
   intro p x d y e hpre res hrun
   exact (ntrm'.spec p x d y e).le_wp hpre res hrun
 
@@ -893,12 +896,6 @@ def exit_f' (p ω : ℝ) (c x d y e : Vec2) : SetM (Vec2 × Vec2 × Vec2 × Vec2
   let (x, d, y, e) ← safeExit p ω c x d y e
   return (x, d, y, e)
 
-theorem ftrm_eq_loop (p r : ℝ) (x d y e : Vec2) :
-    ftrm p r x d y e = (do
-      let (x, _, y, _, _) ← loop (ftrmBody p) (x, d, y, e, r)
-      return (x, y)) := by
-  simp [ftrm, loop, ftrmBody]
-
 /-! ## Unrestricted entry: safety for arbitrarily many entry turns -/
 
 /-- Equal entry radii and speeds imply a common time to the negotiated center. -/
@@ -1121,64 +1118,33 @@ theorem entry_f_safe (p r ω : ℝ) (c x d y e : Vec2)
   intro res hrun
   exact (unrestrictedEntry.spec p r ω c x d y e).le_wp hpre res hrun
 
-def ftrmBody' (p : ℝ) (x d y e : Vec2) (r : ℝ) : SetM (Vec2 × Vec2 × Vec2 × Vec2 × ℝ)
-    requires Inv p (x, d, y, e, r)
-    ensures res => Inv p res
+/-- The full-state FTRM preserves separation and equal speeds, carrying the
+latest negotiated radius into the next iteration and the returned state. -/
+def ftrm' (p r : ℝ) (x₀ d₀ y₀ e₀ : Vec2) : SetM (Vec2 × Vec2 × Vec2 × Vec2 × ℝ)
+    requires 0 ≤ p ∧ 0 ≤ r ∧ ‖d₀‖ = ‖e₀‖ ∧ Separated p x₀ y₀
+    ensures (x, d, y, e, r) => 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y
     := do
-  let (x, d, y, e) ← free_safe p r x d y e
-  let (ω, c, r) ← agree_f' p x d y e
-  let (x₀, d₀, y₀, e₀) := (x, d, y, e)
-  let (x, d, y, e) ← unrestrictedEntry p r ω c x d y e
-  let (x, d, y, e) ← circ_f' p ω c x₀ d₀ y₀ e₀ x d y e
-  let (x, d, y, e) ← exit_f' p ω c x d y e
-  return (x, d, y, e, r)
-
-@[spec] theorem ftrmBody_spec (p : ℝ) (st : Vec2 × Vec2 × Vec2 × Vec2 × ℝ) :
-    ⦃Inv p st⦄ ftrmBody p st ⦃Inv p⦄ := by
-  rcases st with ⟨x, d, y, e, r⟩
-  exact ftrmBody'.spec p x d y e r
-
-theorem ftrmBody_inv :
-    ∀ (p : ℝ) (st : Vec2 × Vec2 × Vec2 × Vec2 × ℝ), Inv p st →
-      ∀ res ∈ SetM.run (ftrmBody p st), Inv p res := by
-  intro p st hpre res hrun
-  exact (ftrmBody_spec p st).le_wp hpre res hrun
-
-def ftrmRuns (p : ℝ) (initial : Vec2 × Vec2 × Vec2 × Vec2 × ℝ) :
-    SetM (Vec2 × Vec2 × Vec2 × Vec2 × ℝ)
-    requires Inv p initial
-    ensures res => Inv p res
-    := do
-  let mut st := initial
+  let mut (x, d, y, e) := (x₀, d₀, y₀, e₀)
+  let mut r := r
   let n ← choose ℕ
   for _ in [:n]
-      invariant _pref _suff => Inv p st do
-    st ← ftrmBody p st
-  return st
+      invariant _pref _suff => 0 ≤ p ∧ 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y do
+    (x, d, y, e) ← free_safe p r x d y e
+    let (ω, c, r_new) ← agree_f' p x d y e
+    r := r_new
+    let (x₀, d₀, y₀, e₀) := (x, d, y, e)
+    (x, d, y, e) ← unrestrictedEntry p r ω c x d y e
+    (x, d, y, e) ← circ_f' p ω c x₀ d₀ y₀ e₀ x d y e
+    (x, d, y, e) ← exit_f' p ω c x d y e
+  return (x, d, y, e, r)
 
-@[spec] theorem ftrmLoop_spec (p : ℝ) (initial : Vec2 × Vec2 × Vec2 × Vec2 × ℝ) :
-    ⦃Inv p initial⦄ loop (ftrmBody p) initial ⦃Inv p⦄ := by
-  exact ftrmRuns.spec p initial
+@[spec] theorem ftrm_spec (p r : ℝ) (x d y e : Vec2) :
+    ⦃0 ≤ p ∧ 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y⦄ ftrm p r x d y e
+    ⦃fun (xr, dr, yr, er, rr) => 0 ≤ rr ∧ ‖dr‖ = ‖er‖ ∧ Separated p xr yr⦄ := by
+  exact ftrm'.spec p r x d y e
 
-/-- FTRM endpoint safety with unrestricted `entry_f` and the unguarded exit.
-The proof uses entry geometry rather than an entry-time bound. -/
-theorem ftrm_safe :
-    ∀ (p r : ℝ) (x d y e : Vec2),
-      0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ 0 < r ∧ Separated (far p r) x y →
-        ∀ res ∈ SetM.run (ftrm p r x d y e),
-          let (xr, yr) := res
-          Separated p xr yr := by
-  intro p r x d y e ⟨hp, hde, hr, hsep⟩ res hrun
-  have hinv : Inv p (x, d, y, e, r) :=
-    ⟨hp, hr.le, hde, separated_of_far p r x y hp hr.le hsep⟩
-  rw [ftrm_eq_loop] at hrun
-  apply SetM.of_wp_run_mem hrun
-  vcgen invariants
-  | inv1 => fun _pref _suff st => Inv p st
-  all_goals grind
-
-def ftrmPrefix' (p : ℝ) (k : Fin 5) (x d y e : Vec2) (r : ℝ) : SetM (Vec2 × Vec2)
-    requires Inv p (x, d, y, e, r)
+def ftrmPrefix' (p r : ℝ) (k : Fin 5) (x d y e : Vec2) : SetM (Vec2 × Vec2)
+    requires 0 ≤ p ∧ 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y
     ensures (xr, yr) => Separated p xr yr
     := do
   let (x, d, y, e) ← free_safe p r x d y e
@@ -1195,33 +1161,41 @@ def ftrmPrefix' (p : ℝ) (k : Fin 5) (x d y e : Vec2) (r : ℝ) : SetM (Vec2 ×
   let (x, _, y, _) ← safeExit p ω c x d y e
   return (x, y)
 
-@[spec] theorem ftrmPrefix_spec (p : ℝ) (k : Fin 5) (st : Vec2 × Vec2 × Vec2 × Vec2 × ℝ) :
-    ⦃Inv p st⦄ ftrmPrefix p k st ⦃fun (x, y) => Separated p x y⦄ := by
-  rcases st with ⟨x, d, y, e, r⟩
-  exact ftrmPrefix'.spec p k x d y e r
+@[spec] theorem ftrmPrefix_spec (p r : ℝ) (k : Fin 5) (x d y e : Vec2) :
+    ⦃0 ≤ p ∧ 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y⦄ ftrmPrefix p r k x d y e
+    ⦃fun (xr, yr) => Separated p xr yr⦄ := by
+  exact ftrmPrefix'.spec p r k x d y e
 
-theorem ftrmPrefix_safe :
-    ∀ (p : ℝ) (k : Fin 5) (st : Vec2 × Vec2 × Vec2 × Vec2 × ℝ), Inv p st →
-      ∀ res ∈ SetM.run (ftrmPrefix p k st),
-        let (xr, yr) := res
-        Separated p xr yr := by
-  intro p k st hpre res hrun
-  exact (ftrmPrefix_spec p k st).le_wp hpre res hrun
+theorem ftrm_end_safe :
+    ∀ (p r : ℝ) (x d y e : Vec2),
+      0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ r > 0 ∧ Separated (far p r) x y →
+        ∀ res ∈ SetM.run (ftrm p r x d y e),
+          let x_res := res.1
+          let y_res := res.2.2.1
+          Separated p x_res y_res := by
+  rintro p r x d y e ⟨hp, hde, hr, hsep⟩ ⟨xr, dr, yr, er, rr⟩ hrun
+  have hpost := (ftrm_spec p r x d y e).le_wp
+    ⟨hp, hr.le, hde, separated_of_far p r x y hp hr.le hsep⟩ (xr, dr, yr, er, rr) hrun
+  exact hpost.2.2
 
-/-- Throughout safety for the FTRM: after any number of its
-completed iterations, every prefix of every additional phase is separated.
-Entry may take arbitrarily many turns and exit has no final separation guard. -/
-theorem ftrm_safe_throughout :
+theorem ftrm_throughout_safe :
     ∀ (p r : ℝ) (x d y e : Vec2),
       0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ 0 < r ∧ Separated (far p r) x y →
-        ∀ st ∈ SetM.run (loop (ftrmBody p) (x, d, y, e, r)),
-          ∀ k : Fin 5, ∀ res ∈ SetM.run (ftrmPrefix p k st),
-            let (xr, yr) := res
-            Separated p xr yr := by
-  intro p r x d y e ⟨hp, hde, hr, hsep⟩ st hrun k res hprefix
-  have hinv : Inv p (x, d, y, e, r) :=
-    ⟨hp, hr.le, hde, separated_of_far p r x y hp hr.le hsep⟩
-  have hstate := (ftrmLoop_spec p (x, d, y, e, r)).le_wp hinv st hrun
-  exact (ftrmPrefix_spec p k st).le_wp hstate res hprefix
+        ∀ tmp ∈ SetM.run (ftrm p r x d y e),
+        let x := tmp.1
+        let d := tmp.2.1
+        let y := tmp.2.2.1
+        let e := tmp.2.2.2.1
+        let r := tmp.2.2.2.2
+          ∀ k : Fin 5, ∀ res ∈ SetM.run (ftrmPrefix p r k x d y e),
+          let x_res := res.1
+          let y_res := res.2
+          Separated p x_res y_res := by
+  rintro p r x d y e ⟨hp, hde, hr, hsep⟩ ⟨xi, di, yi, ei, ri⟩ hrun
+  dsimp only
+  intro k res hprefix
+  obtain ⟨hri, hdi, hsafe⟩ := (ftrm_spec p r x d y e).le_wp
+    ⟨hp, hr.le, hde, separated_of_far p r x y hp hr.le hsep⟩ (xi, di, yi, ei, ri) hrun
+  exact (ftrmPrefix_spec p ri k xi di yi ei).le_wp ⟨hp, hri, hdi, hsafe⟩ res hprefix
 
-end FM09.Proofs
+end FM09

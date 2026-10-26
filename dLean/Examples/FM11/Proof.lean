@@ -1,4 +1,4 @@
-import dLean.Examples.FM11.Challenge
+import dLean.Examples.FM11.Model
 import dLean.Tactic.OdeDeriv
 import Mathlib.Analysis.Calculus.LocalExtr.Basic
 
@@ -8,13 +8,15 @@ import Mathlib.Analysis.Calculus.LocalExtr.Basic
 Proofs of all four safety statements in `Challenge.lean`, following the
 stopping-distance invariant and transitivity arguments in FM11 Appendix A.
 Program composition uses intrinsic contracts and inline loop invariants.
+The shared model is imported from `Model.lean`; `Challenge.lean` is not imported.
+Comparator checks the independent proofs under the same names in namespace `FM11`.
 -/
 
 open dLean
 open Std.WP
 set_option experimental.vcgen true
 set_option experimental.intrinsic true
-namespace FM11.Proofs
+namespace FM11
 
 theorem behind_refl (b B : ℝ) (x v : Car → ℝ) (i : Car) : Behind b B x v i i := by
   simp [Behind]
@@ -388,7 +390,8 @@ theorem llc_safe :
     ∀ A b B ε f l x v a,
       (0 ≤ A ∧ 0 < b ∧ b ≤ B ∧ ε > 0) → Behind b B x v f l →
         ∀ res ∈ SetM.run (llc A b B ε f l x v a),
-          let (x_res, v_res) := res
+          let x_res := res.1
+          let v_res := res.2
           Behind b B x_res v_res f l := by
   intro A b B ε f l x v a hp hbehind res hrun
   rw [llc_eq] at hrun
@@ -613,7 +616,8 @@ theorem glc_safe :
     ∀ A b B ε x v a (C : Finset Car),
       (0 ≤ A ∧ 0 < b ∧ b ≤ B ∧ ε > 0) → LaneSafe C b B x v →
         ∀ res ∈ SetM.run (glc A b B ε C x v a),
-        let (x_res, v_res) := res
+        let x_res := res.1
+        let v_res := res.2
         LaneSafe C b B x_res v_res ∧
         (∀ i ∈ C, BehindLStar C b B x_res v_res i) := by
   intro A b B ε x v a C hp hsafe ⟨xr, vr⟩ hrun
@@ -725,7 +729,9 @@ theorem lhc_safe :
     ∀ A b B ε x v a (C : Finset Car),
       (0 ≤ A ∧ 0 < b ∧ b ≤ B ∧ ε > 0) → LaneSafe C b B x v →
         ∀ res ∈ SetM.run (lhc A b B ε C x v a),
-        let (C_res, x_res, v_res) := res
+        let C_res := res.1
+        let x_res := res.2.1
+        let v_res := res.2.2
         LaneSafe C_res b B x_res v_res ∧
         (∀ i ∈ C_res, BehindLStar C_res b B x_res v_res i) := by
   intro A b B ε x v a C hp hsafe ⟨Cr, xr, vr⟩ hrun
@@ -855,13 +861,16 @@ theorem ghc_safe :
       (0 ≤ A ∧ 0 < b ∧ b ≤ B ∧ ε > 0) →
       (∀ l ∈ lanes, LaneSafe (C l) b B x v) →
         ∀ res ∈ SetM.run (ghc A b B ε lanes C x v a),
-          let (C_res, x_res, v_res) := res
+          let C_res := res.1
+          let x_res := res.2.1
+          let v_res := res.2.2
           ∀ l ∈ lanes, LaneSafe (C_res l) b B x_res v_res ∧
           (∀ i ∈ C_res l, BehindLStar (C_res l) b B x_res v_res i) := by
   intro A b B ε x v a lanes C hp hsafe ⟨Cr, xr, vr⟩ hrun
   rw [ghc_eq] at hrun
   have hfinal := (ghc'.spec A b B ε lanes C x v a).le_wp ⟨hp, hsafe⟩ (Cr, xr, vr) hrun
+  dsimp only
   intro l hl
   exact ⟨hfinal l hl, laneSafe_star (Cr l) b B hp.2.1 hp.2.2.1 xr vr (hfinal l hl)⟩
 
-end FM11.Proofs
+end FM11

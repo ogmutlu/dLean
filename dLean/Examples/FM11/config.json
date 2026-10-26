@@ -1,7 +1,7 @@
 {
     "challenge_module": "Challenge",
     "solution_module": "Solution",
-    "theorem_names": ["FM11.llc_safe, FM11.glc_safe, FM11.lhc_safe, FM11.ghc_safe"],
+    "theorem_names": ["FM11.llc_safe", "FM11.glc_safe", "FM11.lhc_safe", "FM11.ghc_safe"],
     "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
     "enable_nanoda": false
 }
