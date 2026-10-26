@@ -3,7 +3,7 @@
 Run from the repository root with Python 3.11 or newer and uv:
 
 ```sh
-uv sync --project agentic --locked
+uv sync --project agentic 
 uv run --project agentic --locked dlean-prove help
 uv run --project agentic --locked dlean-prove run --help
 uv run --project agentic --locked pyright --project .
@@ -35,6 +35,9 @@ uv run --project agentic --locked dlean-prove run PROBLEM AGENT [OPTIONS]
 - `prepare` copies a trusted challenge snapshot, builds `Challenge`, and initializes a sanitized
   Git repository. `Solution.lean` initially matches `Challenge.lean`. The default output is
   `./NAME-sandbox`, where `NAME` is the problem directory's basename.
+  If the problem includes `Model.lean`, it is copied to `dLean/Examples/NAME/Model.lean`
+  and included in the source fingerprint. Challenge and Solution can both import
+  `dLean.Examples.NAME.Model` without duplicating the model definitions.
 - `agent` runs `codex` in a prepared workspace. It records `agent-output.jsonl` and
   `agent-stderr.log`, streams both logs to the terminal, and returns the agent's exit code.
 - `judge` creates a fresh trusted project, copies in the submitted Lean file, and invokes

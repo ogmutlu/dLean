@@ -208,6 +208,9 @@ source_fingerprint() {
       printf '%s\0' dLean.lean lakefile.toml lake-manifest.json lean-toolchain \
         agentic/AGENTS.md agentic/skills/dlean-prover/SKILL.md \
         "$problem_path/Challenge.lean" "$problem_path/config.json"
+      if [[ -f "$problem_path/Model.lean" ]]; then
+        printf '%s\0' "$problem_path/Model.lean"
+      fi
     } | sort -z | while IFS= read -r -d '' path; do
       sha256sum "$path"
     done
@@ -233,6 +236,11 @@ create_project() {
   cp "$dir/config.json" "$destination/config.json"
   cp "$challenge" "$destination/Challenge.lean"
   cp "$challenge" "$destination/Solution.lean"
+  if [[ -f "$dir/Model.lean" ]]; then
+    local model_destination="$destination/dLean/Examples/$(basename "$dir")"
+    mkdir -p "$model_destination"
+    cp "$dir/Model.lean" "$model_destination/Model.lean"
+  fi
   write_project_lakefile "$destination"
   write_agent_instructions "$destination"
   copy_dlean_skill "$destination"
@@ -266,8 +274,7 @@ create_agent_project() {
   local destination="$2"
   [[ ! -e "$destination" ]] || die "output already exists: $destination"
   mkdir -p "$destination/dLean" "$destination/.lake/packages"
-  cp -a "$source/dLean/Core" "$destination/dLean/Core"
-  cp -a "$source/dLean/Tactic" "$destination/dLean/Tactic"
+  cp -a "$source/dLean/." "$destination/dLean/"
   cp "$source/dLean.lean" "$destination/dLean.lean"
   cp "$source/Challenge.lean" "$destination/Challenge.lean"
   cp "$source/Solution.lean" "$destination/Solution.lean"

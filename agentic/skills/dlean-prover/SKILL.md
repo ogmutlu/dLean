@@ -1,197 +1,256 @@
 ---
 name: dlean-prover
-description: Prove and maintain dLean hybrid-program theorems using SetM weakest preconditions, vcgen loop invariants, differential cuts and invariants, and ODE or QODE derivative tactics. Use for proof work in the dLean library and its clients, not for general Lean theorem proving.
+description: Model, prove, and maintain dLean hybrid programs using SetM, intrinsic vcgen contracts, differential invariants, and ODE or QODE derivative tactics. Use for dLean modelling and proof work in the library and its clients, not for general Lean theorem proving.
 ---
 
 # dLean Prover
 
-Prove or maintain the requested theorem in the style supported by the active dLean checkout. This
-skill supplements general Lean skills with dLean-specific semantics, proof rules, and `vcgen`
-patterns.
+Use the active checkout's `dLean/Core` and `dLean/Tactic` as the authoritative APIs.
+The current examples use `Std.WP`, intrinsic contracts, and inline loop invariants.
+Inspect the relevant model and nearby proofs before choosing an invariant or a proof rule.
 
-Before proving, inspect the relevant modules under `dLean/Core` and `dLean/Tactic`; they are the
-authoritative APIs. Inspect nearby dLean examples when they are available, especially when the task
-asks for the project's established proof style. Do not carry API assumptions across dLean
-checkouts.
+In the source repository, FM09 demonstrates vector dynamics and phase composition;
+FM11 demonstrates quantified car dynamics, changing populations, and lane controllers.
+Their `Model.lean`, `Challenge.lean`, and `Proof.lean` files are the reference idioms.
+Prepared benchmark workspaces contain the task's model and dLean library, but do not
+include reference `Proof.lean` files. Follow the workspace instructions and permitted edit scope.
 
-## Prefer contracts and inline invariants for new examples
+## Modelling
 
-Enable `experimental.vcgen` and `experimental.intrinsic`. State `requires` and `ensures` clauses
-on a program definition and place `invariant pref suff => ...` before the loop's `do` keyword.
-The invariant refers to mutable locals directly. Prove residual contract VCs in
-`where finally | spec => ...`; the generated `prog.spec` is registered as a specification.
-For `SetM`, apply `(prog.spec ...).le_wp hpre result hrun` to recover a membership-based safety
-claim. See the current `Proof.lean` examples for compiled patterns.
+### Separate the model, challenge, and proof
 
-Use `given` for logical parameters that occur only in the contract. Such parameters are not
-available inside the program body; BouncingBall's inline invariant uses the original height
-`x0`, while its contract quantifies over the logical upper bound `H`.
+For examples using the shared-model layout:
 
-Register a `Std.WP.Triple` spec for each continuous-step wrapper, using the analytic preservation
-lemma to prove it. This lets the automatically generated contract proof use `vcgen` without
-`errorOnMissingSpec := false`.
+- Put state types, mathematical predicates, vector fields, evolution domains, and
+  unannotated hybrid programs in `Model.lean`. Keep it independent of admitted challenge theorems.
+- Import that model in `Challenge.lean` and state the requested theorems there.
+- Import the same model in `Proof.lean`; prove the target theorems independently under
+  the same namespace and names. Do not import `Challenge.lean` to obtain model definitions.
+- In a benchmark, work in `Solution.lean` as instructed. Its import of the shared model
+  replaces copying or redefining the model. Preserve the supplied programs and target statements.
 
-The `ProofMVCGen.lean` variants preserve the original tactic workflow. They explicitly import
-`dLean.Core.SemanticsLegacy` and use `dLean.Legacy.SetM.of_wp_run_mem`. Keep that adapter separate
-from new `Std.WP` contract proofs.
+For example, both FM09 theorem files import `dLean.Examples.FM09.Model` and use namespace
+`FM09`. `config.json` selects theorem names; the benchmark module names `Challenge` and
+`Solution` differ from the repository's qualified module paths. Both benchmark harnesses
+copy an optional task `Model.lean` to `dLean/Examples/NAME/Model.lean`, include it in the
+trusted source fingerprint, and preserve it in the agent workspace.
 
-## Read the program as demonic nondeterminism
+### Represent state and predicates directly
 
-`SetM` represents all possible results of a computation. Safety therefore means that the
-postcondition holds for every member of `SetM.run`.
+Use mathematical types for physical quantities: FM09's `Vec2` is
+`EuclideanSpace ℝ (Fin 2)`. Pass components such as `x d y e` as ordinary program arguments,
+and bundle them into tuples at evolution boundaries. Prefer readable tuple lambdas in
+vector fields and state predicates:
 
-When a theorem is stated using membership in `SetM.run`, use the existing WP bridge rather than
-unfolding the set monad:
+```lean
+@[reducible]
+def exitReady (x₀ d₀ y₀ e₀ : Vec2) := fun (x, d, y, e) =>
+  ∃ lx mx : ℝ, 0 ≤ lx ∧ 0 < mx ∧ x + lx • d = x₀ + mx • d₀ ∧
+  ∃ ly my : ℝ, 0 ≤ ly ∧ 0 < my ∧ y + ly • e = y₀ + my • e₀
+```
+
+Use named predicates for separation, tangency, stopping distance, or entry conditions.
+Keep their arguments and assumptions explicit. Use `noncomputable def` for norm-based real
+observables when needed. Do not add state aliases merely to hide tuple projections; reuse
+an existing alias when it serves the model, such as FM11's product of car-coordinate functions.
+
+For quantified systems, separate the active population from total coordinate functions.
+FM11 uses `C : Finset Car`, `x v a : Car → ℝ`, and `Lane → Finset Car` for lane populations.
+Use `Function.update` for individual coordinates and return the updated population after
+creation or deletion. Continuous QODE obligations constrain active coordinates only; retain
+membership hypotheses for every coordinate used in a differential proof.
+
+### Write hybrid programs with ordinary control flow
+
+- Use `do`, mutable locals, and `for` loops for sequential composition and iteration.
+  `let n ← choose ℕ; for _ in [:n] do ...` models any finite number of repetitions,
+  including zero. Iterate over `C.toList` for a finite population.
+- Use `choose` for unconstrained nondeterministic choices and `chooseS` for constrained ones.
+  Use `ensure P` or `unless P do abort` for tests. Keep `<|>` alternatives as program choices.
+  Prefer these constructs over set comprehensions encoding an entire controller; retain
+  set notation where it expresses a choice constraint or a mathematical set.
+- Carry evolving discrete parameters explicitly. FM09's FTRM assigns the newly negotiated
+  radius to a mutable `r` and returns that latest radius with the physical state. A shadowed
+  local must not accidentally leave later phases or the returned state using the old value.
+- Preserve the intended read state when translating simultaneous control into a loop.
+  FM11's `ctrl_n` reads each choice from the original `x v a` and accumulates results in
+  `a_res`. For a car occupying multiple lanes, choose one acceleration and check that same
+  value against every applicable lane controller, as in `ctrl_n_l`.
+
+`SetM` is demonic: safety quantifies over every successful result in `SetM.run`.
+An aborted branch has no successful result; an endpoint test can therefore make an endpoint
+safety theorem vacuous. An existential successful-run theorem expresses a separate liveness
+or feasibility property. Do not replace one of these claims with the other.
+
+### Make continuous phases and safety scope explicit
+
+Define vector fields and evolution domains separately, then use `evolve ode domain`.
+FM09 composes two aircraft fields into `flight ω ρ`. FM11 combines the active-car QODE
+with a clock as `evolve (motion C, time) (domain ε C)`, starting the clock at zero.
+A domain constrains the whole evolution; a following `ensure` constrains only accepted endpoints.
+
+Distinguish final-state safety from safety throughout a phase. For throughout claims,
+expose arbitrary stopping times or phase prefixes before trailing tests, as FM09's
+`ftrmPrefix` does. State the actual current population and any updated parameters in results.
+For a lane invariant, check that nonnegative speeds and distinct positions are explicit
+where needed: FM11's `LaneSafe` includes both alongside leader safety. A leader implication
+alone may be vacuous. Document such modelling additions separately from claims in the paper;
+do not silently add guards, assumptions, or stronger domains to make a proof succeed.
+
+### Keep Comparator target statements stable
+
+When authoring statements selected by `config.json`, name returned components using ordinary
+projection bindings in both Challenge and Proof:
+
+```lean
+∀ res ∈ SetM.run (llc A b B ε f l x v a),
+  let x_res := res.1
+  let v_res := res.2
+  Behind b B x_res v_res f l
+```
+
+Use a named temporary such as `tmp` for a returned full state, and bind the components once
+before writing the safety condition. Tuple-pattern `let (x, v) := res` can generate different
+auxiliary matcher constants in the two modules because Lean reuses earlier matchers.
+Identical source text and definitionally equal types are not sufficient for Comparator's
+structural statement comparison. Ordinary projection bindings avoid this matcher issue.
+
+Tuple unpacking remains appropriate inside programs, intrinsic contracts, and helper statements
+not selected by the config; FM09's AC helper statements retain that style. When proving a fixed
+benchmark, preserve its given statement rather than silently rewriting it for Comparator.
+
+## Proving
+
+### Prefer intrinsic contracts and inline invariants
+
+Keep unannotated programs in the shared model. In the proof file, define annotated counterparts
+such as `free'`, `llc'`, or `ftrm'`, using the same program behaviour and proof-only contracts:
+
+```lean
+open dLean
+open Std.WP
+set_option experimental.vcgen true
+set_option experimental.intrinsic true
+```
+
+Put `requires` and `ensures` on the definition, and an inline
+`invariant pref suff => ...` immediately before each loop's `do`. Refer to mutable locals
+directly in that invariant. Include facts needed for later iterations and phase contracts,
+such as speed compatibility, parameter bounds, and the current population's safety.
+
+For example, after registering the continuous step's `freeStep_spec`, FM09 composes it as:
+
+```lean
+def free' (p : ℝ) (x d₀ y e₀ : Vec2) : SetM (Vec2 × Vec2 × Vec2 × Vec2)
+    requires Separated p x y
+    ensures (xr, dr, yr, er) => Separated p xr yr ∧ ‖dr‖ = ‖d₀‖ ∧ ‖er‖ = ‖e₀‖
+    := do
+  let mut (x, d, y, e) := (x, d₀, y, e₀)
+  let n ← choose ℕ
+  for _ in [:n]
+      invariant _pref _suff => Separated p x y ∧ ‖d‖ = ‖d₀‖ ∧ ‖e‖ = ‖e₀‖ do
+    let ω ← choose ℝ
+    let ρ ← choose ℝ
+    (x, d, y, e) ← freeStep p ω ρ x d y e
+  return (x, d, y, e)
+```
+
+The contract generates `free'.spec`, registered as a specification, using `vcgen`.
+Discharge residual VCs in `where finally | spec => ...`; use the generated goal names
+from the current definition rather than assuming a fixed numbering. Use `given` for
+logical parameters occurring only in the contract. They are not available in the program
+body; capture a runtime value separately if the inline invariant needs it.
+
+Separate the analytic phase proof from program composition. Prove an ODE/QODE preservation
+lemma, expose it as a `Std.WP.Triple` theorem tagged `@[spec]`, then let intrinsic vcgen
+compose the phases and loops. If a named wrapper is needed for spec matching, keep it
+definitionally equal to the model command. Do not add tests or restrict choices in the wrapper.
+
+Generated contracts and explicitly registered specs are selected automatically at call sites.
+Use `#check prog'.spec` or `#print prog'.spec` to inspect the generated theorem. To diagnose
+spec selection, put `set_option trace.Elab.Tactic.Do.vcgen true in` before the definition.
+Primitive rules for `choose`, `chooseS`, `abort`, `test`, and `evolveSemantic` are already
+registered in the library; ordinary assignments do not need custom specs.
+
+### Transfer contracts back to the model program
+
+Check the annotated program against the original with an equality proved by `rfl` when they
+are definitionally equal, as in FM11's `llc_eq`, `glc_eq`, and `ghc_eq`. Replacing a continuous
+command by an equal wrapper may still allow `rfl`. If it fails, inspect the actual program
+bodies and semantics before trying automation.
+
+For a membership-based safety theorem, rewrite the run through that equality when needed,
+then apply the contract with `(prog'.spec ...).le_wp hpre res hrun`. Direct application is
+also valid when Lean sees the programs as definitionally equal. Alternatively register a
+spec on the model program using the annotated counterpart's spec, as in FM09's `ftrm_spec`.
+Program equality is distinct from Comparator's structural equality check on theorem types.
+
+After introducing a result, ordinary `let` bindings in the goal may need `dsimp only` before
+introducing later quantified variables. FM09's throughout theorem and FM11's GHC theorem
+use this to prevent `intro` from naming a local definition instead of the next quantifier.
+
+### Use direct vcgen when an intrinsic counterpart is unsuitable
+
+Use the current `Std.WP` bridge rather than unfolding the set monad:
 
 ```lean
 intro ... result hrun
 apply SetM.of_wp_run_mem hrun
 unfold prog
-vcgen (errorOnMissingSpec := false)
-```
-
-The target is now a weakest-precondition obligation. Avoid globally unfolding `SetM`, its monad
-instances, or `SetM.run`: doing so loses the abstraction on which `vcgen` and the registered specs
-operate.
-
-The library already registers `[spec]` rules for:
-
-- `choose`: prove the continuation for every chosen value;
-- `chooseS`: prove it for every member of the chosen set;
-- `abort`: no successful result exists;
-- `test`: assume the tested proposition;
-- `evolveSemantic`: prove the continuation for every permitted evolution.
-
-These theorems are normally used implicitly by `vcgen`; their absence from the proof script is
-expected. Ordinary mutable bindings and assignments do not need custom specs.
-
-## Build the mathematical invariant before running the loop proof
-
-Identify a predicate strong enough both to survive one iteration and to imply the final safety
-claim. Define it as a named `@[simp] def` when controlled unfolding will help arithmetic and
-structural simplification.
-
-First prove focused helper theorems for the continuous commands. Keep `vcgen` for imperative
-composition and use dLean's differential rules for evolution. This separates program VCs from the
-mathematics of the invariant.
-
-## State the `vcgen` loop invariant with the generated state shape
-
-Use `Std.WP` and enable the experimental tactic, then generate the loop obligations in one call:
-
-```lean
-open Std.WP
-set_option experimental.vcgen true
-
-unfold prog
 vcgen (errorOnMissingSpec := false) invariants
 | inv1 => fun _pref _suff state => invariant parameters state
 ```
 
-The first two invariant arguments are the consumed and remaining elements. Match `state` to all
-mutable locals in declaration order; destructured bindings produce tuples.
+This is a schematic fallback, not the default for new examples. Match `state` to every mutable
+local in declaration order; the first two arguments are the consumed and remaining loop elements.
+Use one `vcgen` call with invariants, rather than the old `vcgen; intros; vcgen invariants` flow.
+`errorOnMissingSpec := false` leaves unsupported calls as WP goals to prove; it does not discharge
+them. Prefer a reusable phase spec when possible. Keep legacy `mvcgen`/`Std.Do` adapters confined
+to explicitly legacy files.
 
-`errorOnMissingSpec := false` leaves unsupported continuous commands as WP obligations for the
-mathematical preservation helpers. This is intentional: prove those obligations rather than
-unfolding the ODE semantics. The `evolveSemantic` spec is registered, but `evolve` wrappers and
-nondeterministic unions need not be unfolded by the tactic.
+Avoid globally unfolding `SetM`, its monad instances, or `SetM.run`. Normalize a remaining pure
+continuation with `simp only [SetM.wp_pure, binderNameHint]` before applying a phase lemma.
+Prefer `apply` over `refine`. If inference fails, first normalize the goal and check its
+precondition, domain, and postcondition; use `refine` only when a remaining elaboration problem
+requires explicit holes.
 
-Use the generated `vc1`, `vc2`, etc. names from the current goal. In the current examples the
-initial-state VC comes first, the final postcondition second, and the loop-body VCs follow.
-The tactic already introduces loop and choice parameters; do not repeat the old two-stage
-`vcgen; intros; vcgen invariants` pattern.
+### Prove continuous preservation with differential rules
 
-Before applying a continuous-preservation helper, normalize pure continuations:
+Evolution statements use `pre [[evolve ode domain]] post`. Choose the rule matching the argument:
 
-```lean
-simp only [SetM.wp_pure, binderNameHint]
-refine continuous_preserves ... _ ?_
--- establish the helper's precondition from the loop invariant and branch facts
-```
+- `dW`: obtain the postcondition from the evolution domain.
+- `dC (cut := ...)`: prove a preserved fact, then add it to the domain for the remaining goal.
+- `dIeq`, `dIle`, `dIlt`, `dIge`, `dIgt`: preserve a scalar observable's equality to zero,
+  nonpositivity, negativity, nonnegativity, or positivity, respectively.
+- `Ensures.nondet_choice`: prove both alternatives of a continuous nondeterministic choice.
+- `Ensures.iff_run`: move between a preservation statement and explicit run membership.
 
-Use `refine helper ... ?_` when `apply` unfolds the proposition-based WP too far. Similarly,
-`refine dC (cut := cutPredicate) ?_ ?_` preserves the intended two differential-cut obligations.
+Build a mathematical invariant strong enough for the phase postcondition and the next phase.
+Use named observables when controlled unfolding clarifies differentiation or arithmetic.
+For nonlinear geometry or reachability, use explicit trajectories and semantic derivative
+arguments where the differential invariant rules do not express the needed claim.
 
-## Prove evolution preservation with dLean rules
+For ordinary ODEs and simultaneous products, `autodiff` computes scalar Lie derivatives for
+supported arithmetic, literal natural powers, inner products, trigonometry, and function-coordinate
+applications.
+Use `ode_deriv [definitions]` for explicit derivatives or additional unfolding. For quantified
+ODEs of shape `Set I × (F → F)`, use `ode_deriv` and supply the relevant active-index membership
+facts. Inspect current `HasPrime`, `Evolvable`, and `IndexedDeriv` instances when a derivative
+cannot be obtained; inactive coordinates do not automatically have the active ODE's derivative.
 
-Evolution statements use `Ensures` notation:
+Finish with `simp`, `simp_all`, or `grind [definitions]` for structural facts. State missing sign
+or geometric facts with `have` before `linarith` or `nlinarith`; use `ring_nf` for polynomial
+normalization. Keep these mathematical obligations separate from the loop-composition VCs.
 
-```lean
-pre [[evolve ode domain]] post
-```
+## Verification
 
-Use the rules according to the mathematical argument:
+Rebuild changed model dependencies before checking importing files; a standalone
+`lake env lean Proof.lean` can otherwise read stale imported `.olean` files. Use targeted
+`lake build` commands for the affected model, challenge, and proof modules, and check
+`Solution.lean` in the prepared benchmark workspace.
 
-- `dW`: derive the postcondition directly from the evolution domain;
-- `dC (cut := cutPredicate)`: establish a fact along the evolution, then add it to the domain for
-  the remaining proof;
-- `dIeq`, `dIle`, `dIlt`, `dIge`, `dIgt`: preserve respectively equality, nonpositive, negative,
-  nonnegative, or positive scalar observables;
-- `Ensures.nondet_choice`: prove both sides of `p ∪ q`;
-- `Ensures.iff_run`: switch to explicit initial/final states when lifting a pointwise preservation
-  theorem through a quantified invariant.
-
-For a nondeterministic continuous command, prove each ODE once and compose them:
-
-```lean
-apply Ensures.nondet_choice
-· exact left_evolution_preserves ...
-· exact right_evolution_preserves ...
-```
-
-## Choose the derivative tactic
-
-For ordinary autonomous vector fields, quantified ODEs, and their simultaneous products:
-
-- `autodiff` computes the scalar Lie derivative and proves the `HasPrime` goal, including
-  applications of function-valued coordinates at fixed indices;
-- `autodiff` supports `+`, `-`, multiplication, scalar multiplication, inner products, negation,
-  literal natural powers, `Real.sin`, and `Real.cos`;
-- if the derivative function is supplied explicitly, use `ode_deriv` or let `autodiff` delegate to
-  it;
-- pass extra unfolding lemmas as `ode_deriv [definitions]` when inference does not normalize an
-  observable or vector field.
-
-For quantified ODEs represented by `Set I × (F → F)`:
-
-- use `ode_deriv` on `HasPrime` goals;
-- provide the named gap, projection, and motion definitions needed for simplification, for example
-  `ode_deriv [vGap', motion]`;
-- the tactic obtains coordinate derivatives only for active indices, so retain and supply index
-  membership facts such as `i ∈ active` and `j ∈ active`.
-
-`ode_deriv` unfolds the ODE, domain, observable, and proposed derivative automatically.
-Add explicit definitions only when the current goal shows that further unfolding is required.
-
-## Finish VCs in the local proof style
-
-- Use `simp only [SetM.wp_pure]` when a generated VC still contains a nested pure WP before applying an
-  `Ensures` helper.
-- Use `simp`, `simp_all`, or `grind [definitions]` to expose tuple projections, domains, record-free
-  state updates, and invariant structure.
-- Name non-obvious arithmetic or geometric facts with `have` before calling `linarith` or
-  `nlinarith`.
-- In the final postcondition VC, unpack only the invariant information needed to show the returned
-  value is safe.
-
-## Diagnose by layer
-
-- If `vcgen` stops at a primitive, inspect its `[spec]` theorem in `dLean/Core/Semantics.lean` and
-  ensure the primitive has not been hidden behind an opaque local definition.
-- If a loop invariant pattern does not elaborate, inspect the generated product state in the
-  invariant goal; include every mutable local and both list arguments.
-- If `apply` fails after `vcgen`, first normalize (`simp [SetM.wp_pure]`); then compare the helper theorem's
-  `Ensures` precondition with the current invariant.
-- If `autodiff` reports an unsupported expression or ODE, provide an explicit derivative and use
-  `ode_deriv`, or prove `HasPrime` from the semantic derivative assumptions.
-- If `ode_deriv` cannot find a coordinate derivative, check both that the state is built from
-  supported function/product `IndexedDeriv` instances and that the coordinate is in the active set.
-- If arithmetic automation stalls, simplify the named observable and derivative, normalize with
-  `ring_nf`, then state the missing sign fact explicitly.
-
-### IMPORTANT
-
-- use `apply` instead of `refine` where possible
-- use `for` loops in hybrid programs instead of Set notation where possible
-- avoid dot notation like `st.1.2`, unpack them with e.g. `let`
-- use intrinsic vcgen where possible
+Preserve target names, assumptions, programs, and postconditions. Ensure the target proofs and
+their dependencies use no admitted challenge theorem or forbidden axiom. Read `config.json` to
+identify Comparator targets. A successful Lean build, a source-text comparison, or a check of
+definitional equality alone does not establish Comparator acceptance. Report a full Comparator
+pass only after it actually runs successfully; distinguish it from local structural type checks.

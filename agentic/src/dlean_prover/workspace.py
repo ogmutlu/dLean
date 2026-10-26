@@ -82,6 +82,9 @@ def source_fingerprint(problem: Problem) -> str:
             str(problem.path / "config.json"),
         ]
     )
+    model = problem.path / "Model.lean"
+    if model.is_file():
+        paths.append(str(model))
     fingerprint = hashlib.sha256()
     for name in sorted(paths, key=os.fsencode):
         digest = hashlib.sha256((REPO_ROOT / name).read_bytes()).hexdigest()
@@ -107,7 +110,10 @@ def write_metadata(problem: Problem, destination: Path) -> None:
     )
     if commit.returncode == 0:
         dirty = bool(capture(["git", "status", "--porcelain"], REPO_ROOT))
-        metadata += f"git_commit={commit.stdout.strip()}\ngit_dirty={str(dirty).lower()}\n"
+        metadata += (
+            f"git_commit={commit.stdout.strip()}\n"
+            f"git_dirty={str(dirty).lower()}\n"
+        )
     (destination / "benchmark-metadata.txt").write_text(metadata)
 
 
@@ -139,7 +145,8 @@ def create_project(
     packages = REPO_ROOT / ".lake/packages"
     if not (packages / "mathlib").is_dir():
         raise BenchmarkError(
-            f"missing trusted dependency cache; run 'lake update && lake exe cache get' in {REPO_ROOT}"
+            "missing trusted dependency cache; run "
+            f"'lake update && lake exe cache get' in {REPO_ROOT}"
         )
     instructions = AGENTIC_ROOT / "AGENTS.md"
     skill = AGENTIC_ROOT / "skills/dlean-prover"
@@ -160,8 +167,18 @@ def create_project(
     shutil.copy2(problem.path / "config.json", destination / "config.json")
     for name in ("Challenge.lean", "Solution.lean"):
         shutil.copy2(problem.path / "Challenge.lean", destination / name)
+    model = problem.path / "Model.lean"
+    if model.is_file():
+        model_destination = (
+            destination / "dLean/Examples" / problem.name / "Model.lean"
+        )
+        model_destination.parent.mkdir(parents=True)
+        shutil.copy2(model, model_destination)
     lakefile = (REPO_ROOT / "lakefile.toml").read_text()
-    lakefile += '\n[[lean_lib]]\nname = "Challenge"\n\n[[lean_lib]]\nname = "Solution"\n'
+    lakefile += (
+        '\n[[lean_lib]]\nname = "Challenge"\n'
+        '\n[[lean_lib]]\nname = "Solution"\n'
+    )
     (destination / "lakefile.toml").write_text(lakefile)
     shutil.copy2(instructions, destination / "AGENTS.md")
     shutil.copytree(
@@ -186,7 +203,7 @@ def create_project(
 
 def create_agent_project(source: Workspace, destination: Path) -> Workspace:
     new_directory(destination)
-    for name in ("dLean/Core", "dLean/Tactic", ".agents", ".lake/build"):
+    for name in ("dLean", ".agents", ".lake/build"):
         shutil.copytree(source.path / name, destination / name, symlinks=True)
     for name in PROJECT_FILES:
         shutil.copy2(source.path / name, destination / name)
