@@ -37,6 +37,9 @@ theorem ftrm_throughout_safe :
           let y_res := res.2
           Separated p x_res y_res := sorry
 
+
+/-! Following are not safety-critical. They are lemmata from the paper. -/
+
 /-- AC1 (free phase): free flight preserves far separation (its domain) and
 the linear speeds. Prefix-closed, hence throughout. -/
 theorem AC1_free :

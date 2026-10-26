@@ -1,0 +1,24 @@
+{
+    "challenge_module": "Challenge",
+    "solution_module": "Solution",
+    "theorem_names": [
+        "IJRR17.dwss_safe",
+        "IJRR17.dwps_safe",
+        "IJRR17.dwpfs_safe",
+        "IJRR17.dwpos_safe",
+        "IJRR17.dwpsa_safe",
+        "IJRR17.dwpslu_safe",
+        "IJRR17.dwpsap_safe",
+        "IJRR17.dwpsvu_safe",
+        "IJRR17.dwpsns_safe",
+        "IJRR17.dwnobs_safe",
+        "IJRR17.dwwp_live",
+        "IJRR17.dwcx_live"
+    ],
+    "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+    ],
+    "enable_nanoda": false
+}
