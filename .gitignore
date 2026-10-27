@@ -4,3 +4,5 @@
 /.vscode
 /presentation
 /*-judge
+/.ruff-cache
+/keymaera

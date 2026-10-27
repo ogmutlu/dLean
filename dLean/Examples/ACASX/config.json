@@ -1,0 +1,16 @@
+{
+    "challenge_module": "Challenge",
+    "solution_module": "Solution",
+    "theorem_names": [
+        "ACASX.immediate_safe",
+        "ACASX.immediate_regions_equivalent",
+        "ACASX.delayed_safe",
+        "ACASX.delayed_regions_equivalent",
+        "ACASX.two_sided_safe",
+        "ACASX.bounded_safe",
+        "ACASX.safeable_safe",
+        "ACASX.horizontal_reduction"
+    ],
+    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+    "enable_nanoda": false
+}
