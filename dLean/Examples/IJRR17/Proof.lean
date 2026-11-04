@@ -4,10 +4,11 @@ import dLean.Tactic.OdeDeriv
 /-!
 # IJRR17: safety and liveness following `robix.kyx`
 
-Independent proofs of journal Theorems 1--9, 11, and 12. Theorem 10 is audited
+Independent proofs of journal Theorems 1--9, 11, and 12, and archive Corollaries
+1.1--1.3 and 2. Theorem 10 is audited
 separately in `Theorem10.lean`: its exact statement has a checked counterexample,
 and a version with explicit initial obstacle-velocity bounds is proved there.
-The shared model and challenge statements are unchanged, and no admitted
+The original journal statements are retained, and no admitted
 challenge theorem is imported.
 
 The safety proofs use the archive's stopping-distance, friendly-margin,
@@ -240,6 +241,247 @@ theorem dwss_safe :
   exact static_separated b hbounds.2.1 _ _ _ _
     ((dwss'.spec A b Ω ε hbounds.1 hbounds.2.1 p d o s ω r).le_wp
       (static_initial b p d o s hinit) res hrun)
+
+/-! ## Archive Corollaries 1.2 and 1.3: static safety with imperfect trajectories -/
+
+theorem approximate_direction_component (Δd σ : ℝ) (i : Fin 2) (d : Vec2)
+    (hΔ : 0 ≤ Δd) (hσ : σ = 1 ∨ σ = -1) (hd : ApproxDirection Δd d) :
+    0 ≤ σ * d i + (1 + Δd) := by
+  fin_cases i <;> rcases hσ with rfl | rfl <;>
+    dsimp [ApproxDirection] at hd ⊢ <;>
+    nlinarith [sq_nonneg (d 0), sq_nonneg (d 1), sq_nonneg (1 + Δd + d 0),
+      sq_nonneg (1 + Δd - d 0), sq_nonneg (1 + Δd + d 1),
+      sq_nonneg (1 + Δd - d 1)]
+
+theorem approximate_direction_preserved (Δd a r ε : ℝ) :
+    (fun st => ApproxDirection Δd st.1.2.1)
+    [[evolve (motion a r 0, time) (domain ε)]]
+    (fun st => ApproxDirection Δd st.1.2.1) := by
+  intro initial hpre final hrun
+  have hp : HasPrime (Evolvable.denotation (motion a r 0, time)) (domain ε)
+      (fun st => directionEnergy st - directionEnergy initial) (fun _ => 0) := by
+    ode_deriv [directionEnergy, motion, time, perp]
+  have heq := dIeq (ode := (motion a r 0, time)) (domain := domain ε)
+    (pre := fun st => directionEnergy st - directionEnergy initial = 0)
+    (fun st => directionEnergy st - directionEnergy initial) (fun _ => 0) hp
+    (fun _ h => h) (fun _ _ => rfl) initial (sub_self _) final hrun
+  dsimp [directionEnergy, ApproxDirection] at hpre heq ⊢
+  constructor <;> linarith
+
+noncomputable def imperfectResponse (A b ε Δd σ : ℝ) (i : Fin 2) :
+    (Vec2 × Vec2 × Vec2 × ℝ × ℝ) × ℝ → ℝ :=
+  fun ((p, _d, o, s, _ω), t) => σ * (p i - o i) - (1 + Δd) * stopDist b s -
+    (1 + Δd) * (A / b + 1) * (A / 2 * (ε - t) ^ 2 + (ε - t) * s)
+
+theorem imperfectResponse_hasPrime (A b ε Δd r σ : ℝ) (i : Fin 2) (D) :
+    HasPrime (Evolvable.denotation (motion A r 0, time)) D
+      (imperfectResponse A b ε Δd σ i)
+      (fun ((_p, d, _o, s, _ω), _t) => s * (σ * d i + (1 + Δd))) := by
+  ode_deriv [imperfectResponse, stopDist, motion, time]
+
+theorem imperfect_response_signed (b ε Δd a r σ : ℝ) (i : Fin 2) (hb : 0 < b)
+    (hΔ : 0 ≤ Δd) (ha : a = -b ∨ 0 ≤ a) (hσ : σ = 1 ∨ σ = -1) :
+    (fun ((p, d, o, s, _ω), t) => t = 0 ∧ ApproxDirection Δd d ∧
+      (1 + Δd) * stoppingMargin a b 0 ε s < σ * (p i - o i))
+    [[evolve (motion a r 0, time) (domain ε)]]
+    (fun ((p, d, o, s, _ω), _t) =>
+      0 ≤ s ∧ ApproxDirection Δd d ∧ (1 + Δd) * stopDist b s < σ * (p i - o i)) := by
+  apply dC (cut := fun st => ApproxDirection Δd st.1.2.1)
+  · exact fun st h => approximate_direction_preserved Δd a r ε st h.2.1
+  · rintro ⟨⟨p₀, d₀, o₀, s₀, ω₀⟩, t₀⟩ ⟨rfl, hd, hmargin⟩
+      ⟨⟨p, d, o, s, ω⟩, t⟩ hrun
+    have hstart : 0 < imperfectResponse a b ε Δd σ i ((p₀, d₀, o₀, s₀, ω₀), 0) := by
+      dsimp [imperfectResponse, stoppingMargin] at hmargin ⊢
+      simp only [zero_mul, zero_div, add_zero, sub_zero] at hmargin ⊢
+      nlinarith
+    have hend := dIgt (ode := (motion a r 0, time))
+      (domain := fun st => domain ε st ∧ ApproxDirection Δd st.1.2.1)
+      (pre := fun st => 0 < imperfectResponse a b ε Δd σ i st)
+      (imperfectResponse a b ε Δd σ i)
+      (fun ((_p, d, _o, s, _ω), _t) => s * (σ * d i + (1 + Δd)))
+      (imperfectResponse_hasPrime a b ε Δd r σ i _)
+      (fun _ h => h)
+      (fun st h => mul_nonneg h.1.2
+        (approximate_direction_component Δd σ i st.1.2.1 hΔ hσ h.2))
+      ((p₀, d₀, o₀, s₀, ω₀), 0) hstart ((p, d, o, s, ω), t) hrun
+    have hdom := dW (ode := (motion a r 0, time))
+      (domain := fun st => domain ε st ∧ ApproxDirection Δd st.1.2.1)
+      (pre := fun _ => True) (fun _ h => h)
+      ((p₀, d₀, o₀, s₀, ω₀), 0) trivial ((p, d, o, s, ω), t) hrun
+    have hreserve :
+        0 ≤ (a / b + 1) * (a / 2 * (ε - t) ^ 2 + (ε - t) * s) :=
+      ha.elim (fun heq => by simp [heq, hb.ne'])
+        (fun ha => mul_nonneg (add_nonneg (div_nonneg ha hb.le) (by norm_num))
+          (add_nonneg (mul_nonneg (by positivity) (sq_nonneg _))
+            (mul_nonneg (sub_nonneg.mpr hdom.1.1) hdom.1.2)))
+    have hscaled := mul_nonneg (show 0 ≤ 1 + Δd by linarith) hreserve
+    exact ⟨hdom.1.2, hdom.2, by dsimp [imperfectResponse] at hend; nlinarith⟩
+
+theorem infNorm_pos_iff_distanceSq (p o : Vec2) :
+    0 < infNorm (p - o) ↔ 0 < distanceSq p o := by
+  constructor
+  · intro hnorm
+    by_contra h
+    have hx : p 0 - o 0 = 0 := by
+      dsimp [distanceSq] at h
+      nlinarith [sq_nonneg (p 1 - o 1), sq_nonneg (p 0 - o 0)]
+    have hy : p 1 - o 1 = 0 := by
+      dsimp [distanceSq] at h
+      nlinarith [sq_nonneg (p 0 - o 0), sq_nonneg (p 1 - o 1)]
+    simp [infNorm, hx, hy] at hnorm
+  · intro hsep
+    by_contra h
+    have hz := max_le_iff.mp (le_of_not_gt h)
+    dsimp at hz
+    have hx := abs_nonpos_iff.mp hz.1
+    have hy := abs_nonpos_iff.mp hz.2
+    simp [distanceSq, hx, hy] at hsep
+
+@[reducible] def ImperfectInv (b Δd : ℝ) (p d o : Vec2) (s : ℝ) : Prop :=
+  0 ≤ s ∧ ApproxDirection Δd d ∧ (1 + Δd) * stopDist b s < infNorm (p - o)
+
+@[reducible] def ImperfectReady (A b ε Δd : ℝ) (p d o : Vec2) (s a : ℝ) : Prop :=
+  (a = -b ∧ ImperfectInv b Δd p d o s) ∨
+  (s = 0 ∧ a = 0 ∧ ImperfectInv b Δd p d o s) ∨
+  (a = A ∧ 0 ≤ s ∧ ApproxDirection Δd d ∧ ImperfectSafe A b ε Δd p o s)
+
+theorem imperfect_initial (b Δd : ℝ) (p d o : Vec2) (s : ℝ) :
+    ImperfectInitial Δd p d o s → ImperfectInv b Δd p d o s := by
+  rintro ⟨rfl, hsep, hd⟩
+  exact ⟨le_rfl, hd, by simpa [stopDist] using
+    (infNorm_pos_iff_distanceSq p o).mpr hsep⟩
+
+theorem imperfect_separated (b Δd : ℝ) (hb : 0 < b) (hΔ : 0 ≤ Δd)
+    (p d o : Vec2) (s : ℝ) (h : ImperfectInv b Δd p d o s) :
+    0 < distanceSq p o := by
+  exact (infNorm_pos_iff_distanceSq p o).mp
+    ((mul_nonneg (by linarith) (div_nonneg (sq_nonneg s) (by positivity))).trans_lt h.2.2)
+
+noncomputable def imperfectControl (A b Ω ε Δd : ℝ) (p _d o : Vec2)
+    (s sm ω r : ℝ) :=
+  ctrl_r b Ω (pure A) (fun p o s _ => ImperfectSafe A b ε Δd p o s) p o s sm ω r
+
+@[spec] theorem imperfectControl_spec (A b Ω ε Δd : ℝ) (p d o : Vec2) (s sm ω r : ℝ) :
+    ⦃sm = s ∧ ImperfectInv b Δd p d o s⦄ imperfectControl A b Ω ε Δd p d o s sm ω r
+    ⦃fun (a, _ω, _r, o) => ImperfectReady A b ε Δd p d o s a⦄ := by
+  unfold imperfectControl ctrl_r
+  vcgen
+  constructor
+  · vcgen
+    simp_all
+  · vcgen
+    constructor
+    all_goals vcgen
+    all_goals simp_all
+
+theorem imperfect_clearance (b ε Δd a r : ℝ) (hb : 0 < b) (hΔ : 0 ≤ Δd)
+    (ha : a = -b ∨ 0 ≤ a) (p d o : Vec2) (s ω : ℝ)
+    (hd : ApproxDirection Δd d) (hsafe : ImperfectSafe a b ε Δd p o s) :
+    ∀ res ∈ SetM.run (evolve (motion a r 0, time) (domain ε) ((p, d, o, s, ω), 0)),
+      let ((pr, dr, or_, sr, _ω), _t) := res
+      ImperfectInv b Δd pr dr or_ sr := by
+  obtain ⟨i, σ, hσ, hmargin⟩ :=
+    signed_witness ((1 + Δd) * stoppingMargin a b 0 ε s) (p - o) hsafe
+  rintro ⟨⟨pr, dr, or_, sr, ωr⟩, t⟩ hrun
+  have h := imperfect_response_signed b ε Δd a r σ i hb hΔ ha hσ
+    ((p, d, o, s, ω), 0) ⟨rfl, hd, by simpa using hmargin⟩
+    ((pr, dr, or_, sr, ωr), t) hrun
+  exact ⟨h.1, h.2.1, h.2.2.trans_le
+    (by simpa using signed_le_infNorm (pr - or_) i σ hσ)⟩
+
+noncomputable def imperfectDyn (_A _b ε _Δd a r : ℝ) (v p d o : Vec2) (s ω : ℝ) :=
+  dyn ε a r v p d o s ω
+
+@[spec] theorem imperfectDyn_spec (A b ε Δd a r : ℝ) (hA : 0 ≤ A) (hb : 0 < b)
+    (hΔ : 0 ≤ Δd) (v p d o : Vec2) (s ω : ℝ) :
+    ⦃v = 0 ∧ ImperfectReady A b ε Δd p d o s a⦄
+    imperfectDyn A b ε Δd a r v p d o s ω
+    ⦃fun (p, d, o, s, _ω) => ImperfectInv b Δd p d o s⦄ := by
+  unfold imperfectDyn dyn
+  vcgen (errorOnMissingSpec := false)
+  rename_i hpre
+  simp only [SetM.wp_pure, binderNameHint]
+  rcases hpre with ⟨rfl, hready⟩
+  rcases hready with ⟨rfl, hs, hd, hclear⟩ | ⟨rfl, rfl, hs, hd, hclear⟩ |
+    ⟨rfl, hs, hd, hsafe⟩
+  · exact imperfect_clearance b ε Δd (-b) r hb hΔ (.inl rfl) p d o s ω hd
+      (by simpa [ImperfectSafe, stoppingMargin, hb.ne'] using hclear)
+  · exact imperfect_clearance b ε Δd 0 r hb hΔ (.inr le_rfl) p d o 0 ω hd
+      (by simpa [ImperfectSafe, stoppingMargin, stopDist] using hclear)
+  · exact imperfect_clearance b ε Δd a r hb hΔ (.inr hA) p d o s ω hd hsafe
+
+noncomputable def dwss_imperfect' (A b Ω ε Δd : ℝ) (hA : 0 ≤ A) (hb : 0 < b)
+    (hΔ : 0 ≤ Δd) (p d o : Vec2) (s ω r : ℝ) :
+    SetM (Vec2 × Vec2 × Vec2 × ℝ × ℝ × ℝ × Vec2)
+    requires ImperfectInv b Δd p d o s
+    ensures (p, d, o, s, _ω, _r, _v) => ImperfectInv b Δd p d o s
+    := do
+  let mut (p, d, o, s, ω, r, v) := (p, d, o, s, ω, r, (0 : Vec2))
+  let n ← choose ℕ
+  for _ in [:n]
+      invariant _pref _suff => ImperfectInv b Δd p d o s do
+    let (pMeasured, sMeasured) ← pure (p, s)
+    v ← pure 0
+    let (a, ω_new, r_new, o_new) ← imperfectControl A b Ω ε Δd pMeasured d o s sMeasured ω r
+    ω := ω_new
+    r := r_new
+    o := o_new
+    let aActual ← pure a
+    (p, d, o, s, ω) ← imperfectDyn A b ε Δd aActual r v p d o s ω
+  return (p, d, o, s, ω, r, v)
+
+theorem dwss_imperfect_eq (A b Ω ε Δd : ℝ) (hA : 0 ≤ A) (hb : 0 < b)
+    (hΔ : 0 ≤ Δd) (p d o : Vec2) (s ω r : ℝ) :
+    dwss_imperfect A b Ω ε Δd p d o s ω r =
+      dwss_imperfect' A b Ω ε Δd hA hb hΔ p d o s ω r := by rfl
+
+/-- Archive "Corollary 1.2: Static safety with margin for imperfect trajectories". -/
+theorem dwss_imperfect_safe :
+    ∀ A b Ω ε Δd p d o s ω r,
+      Bounds A b 0 ε → (0 ≤ Δd ∧ Δd ≤ 1) → ImperfectInitial Δd p d o s →
+        ∀ res ∈ SetM.run (dwss_imperfect A b Ω ε Δd p d o s ω r),
+          let p_res := res.1
+          let o_res := res.2.2.1
+          0 < distanceSq p_res o_res := by
+  intro A b Ω ε Δd p d o s ω r hb hΔ hi res hrun
+  exact imperfect_separated b Δd hb.2.1 hΔ.1 _ _ _ _
+    ((dwss_imperfect'.spec A b Ω ε Δd hb.1 hb.2.1 hΔ.1 p d o s ω r).le_wp
+      (imperfect_initial b Δd p d o s hi) res hrun)
+
+theorem imperfectSafeNoDiv_iff (A b ε Δd : ℝ) (p o : Vec2) (s : ℝ) (hb : 0 < b) :
+    ImperfectSafeNoDiv A b ε Δd p o s ↔ ImperfectSafe A b ε Δd p o s := by
+  have heq : (1 + Δd) * s ^ 2 + (1 + Δd) * (A + b) * (A * ε ^ 2 + 2 * ε * s) =
+      2 * b * ((1 + Δd) * stoppingMargin A b 0 ε s) := by
+    dsimp [stoppingMargin, stopDist]
+    field_simp
+    ring
+  unfold ImperfectSafeNoDiv ImperfectSafe
+  rw [heq, mul_lt_mul_iff_right₀ (show 0 < 2 * b by positivity)]
+
+theorem dwss_imperfect_no_div_eq (A b Ω ε Δd : ℝ) (p d o : Vec2) (s ω r : ℝ)
+    (hb : 0 < b) :
+    dwss_imperfect_no_div A b Ω ε Δd p d o s ω r =
+      dwss_imperfect A b Ω ε Δd p d o s ω r := by
+  have hsafe : (fun p o s (_ : ℝ) => ImperfectSafeNoDiv A b ε Δd p o s) =
+      (fun p o s (_ : ℝ) => ImperfectSafe A b ε Δd p o s) := by
+    funext p o s _
+    exact propext (imperfectSafeNoDiv_iff A b ε Δd p o s hb)
+  unfold dwss_imperfect_no_div dwss_imperfect
+  rw [hsafe]
+
+/-- Archive "Corollary 1.3: Static safety with margin for imperfect trajectories
+(no division)", including its fixed initial angular velocity and radius. -/
+theorem dwss_imperfect_no_div_safe :
+    ∀ A b Ω ε Δd p d o s ω r,
+      Bounds A b 0 ε → (0 ≤ Δd ∧ Δd ≤ 1) →
+      (ImperfectInitial Δd p d o s ∧ ω = 0 ∧ r = 1) →
+        ∀ res ∈ SetM.run (dwss_imperfect_no_div A b Ω ε Δd p d o s ω r),
+          let p_res := res.1
+          let o_res := res.2.2.1
+          0 < distanceSq p_res o_res := by
+  intro A b Ω ε Δd p d o s ω r hb hΔ hi res hrun
+  rw [dwss_imperfect_no_div_eq A b Ω ε Δd p d o s ω r hb.2.1] at hrun
+  exact dwss_imperfect_safe A b Ω ε Δd p d o s ω r hb hΔ hi.1 res hrun
 
 /-! ## Passive safety: the archive's conditional stopping-distance invariant -/
 
@@ -1077,6 +1319,141 @@ theorem dwpsns_safe :
     ((dwpsns'.spec A b V Ω ε hbounds.1 hbounds.2.1 hbounds.2.2.1 hbounds.2.2.2.le
       p d o v s ω r).le_wp (passive_initial b V p d o s hinit) res hrun)
 
+/-! ## Archive Corollary 1.1: Velocity-controlled passive safety -/
+
+noncomputable def velocityResponse (V ε σ : ℝ) (i : Fin 2) :
+    (Vec2 × Vec2 × Vec2 × ℝ × ℝ) × ℝ → ℝ :=
+  fun ((p, _d, o, s, _ω), t) => σ * (p i - o i) - (ε - t) * (s + V)
+
+theorem velocityResponse_hasPrime (V ε r σ : ℝ) (v : Vec2) (i : Fin 2) (D) :
+    HasPrime (Evolvable.denotation (motion 0 r v, time)) D (velocityResponse V ε σ i)
+      (fun ((_p, d, _o, s, _ω), _t) => s * (σ * d i + 1) + (V - σ * v i)) := by
+  ode_deriv [velocityResponse, motion, time]
+
+theorem velocity_response_signed (V ε r σ : ℝ) (v : Vec2) (i : Fin 2)
+    (hV : 0 ≤ V) (hv : v 0 ^ 2 + v 1 ^ 2 ≤ V ^ 2) (hσ : σ = 1 ∨ σ = -1) :
+    (fun ((p, d, o, s, _ω), t) =>
+      t = 0 ∧ UnitDirection d ∧ ε * (s + V) < σ * (p i - o i))
+    [[evolve (motion 0 r v, time) (domain ε)]]
+    (fun ((p, d, o, s, _ω), _t) =>
+      0 ≤ s ∧ UnitDirection d ∧ 0 < σ * (p i - o i)) := by
+  apply dC (cut := fun st => UnitDirection st.1.2.1)
+  · exact fun st h => motion_unit_preserved 0 r ε v st h.2.1
+  · rintro ⟨⟨p₀, d₀, o₀, s₀, ω₀⟩, t₀⟩ ⟨rfl, hd, hm⟩
+      ⟨⟨p, d, o, s, ω⟩, t⟩ hrun
+    have hstart : 0 < velocityResponse V ε σ i ((p₀, d₀, o₀, s₀, ω₀), 0) := by
+      simpa [velocityResponse] using sub_pos.mpr hm
+    have hend := dIgt (ode := (motion 0 r v, time))
+      (domain := fun st => domain ε st ∧ UnitDirection st.1.2.1)
+      (pre := fun st => 0 < velocityResponse V ε σ i st)
+      (velocityResponse V ε σ i)
+      (fun ((_p, d, _o, s, _ω), _t) => s * (σ * d i + 1) + (V - σ * v i))
+      (velocityResponse_hasPrime V ε r σ v i _)
+      (fun _ h => h)
+      (fun st h => add_nonneg
+        (mul_nonneg h.1.2 (signed_direction_nonneg σ i st.1.2.1 hσ h.2))
+        (velocity_component_bound V σ v i hV hv hσ))
+      ((p₀, d₀, o₀, s₀, ω₀), 0) hstart ((p, d, o, s, ω), t) hrun
+    have hdom := dW (ode := (motion 0 r v, time))
+      (domain := fun st => domain ε st ∧ UnitDirection st.1.2.1)
+      (pre := fun _ => True) (fun _ h => h)
+      ((p₀, d₀, o₀, s₀, ω₀), 0) trivial ((p, d, o, s, ω), t) hrun
+    have hreserve := mul_nonneg (sub_nonneg.mpr hdom.1.1) (add_nonneg hdom.1.2 hV)
+    exact ⟨hdom.1.2, hdom.2, by dsimp [velocityResponse] at hend; linarith⟩
+
+@[reducible] def VelocityInv (p d o : Vec2) (s : ℝ) : Prop :=
+  0 ≤ s ∧ UnitDirection d ∧ PassiveSafe p o s
+
+@[reducible] def VelocityReady (V ε : ℝ) (p d o : Vec2) (s : ℝ) : Prop :=
+  UnitDirection d ∧ (s = 0 ∨ VelocitySafe V ε p o s)
+
+theorem velocity_phase (V ε r : ℝ) (hV : 0 ≤ V) (v p d o : Vec2) (s ω : ℝ)
+    (hv : v 0 ^ 2 + v 1 ^ 2 ≤ V ^ 2) (hd : UnitDirection d)
+    (hready : s = 0 ∨ VelocitySafe V ε p o s) :
+    ∀ res ∈ SetM.run (evolve (motion 0 r v, time) (domain ε) ((p, d, o, s, ω), 0)),
+      let ((pr, dr, or_, sr, _ω), _t) := res
+      VelocityInv pr dr or_ sr := by
+  rintro ⟨⟨pr, dr, or_, sr, ωr⟩, t⟩ hrun
+  have hdom := dW (ode := (motion 0 r v, time)) (domain := domain ε)
+    (pre := fun _ => True) (fun _ h => h)
+    ((p, d, o, s, ω), 0) trivial ((pr, dr, or_, sr, ωr), t) hrun
+  have hdr := motion_unit_preserved 0 r ε v
+    ((p, d, o, s, ω), 0) hd ((pr, dr, or_, sr, ωr), t) hrun
+  apply And.intro hdom.2 (And.intro hdr ?_)
+  intro hpos
+  rcases hready with rfl | hsafe
+  · have hs := speed_upper 0 r ε 0 v le_rfl
+      ((p, d, o, 0, ω), 0) le_rfl ((pr, dr, or_, sr, ωr), t) hrun
+    exact False.elim (not_lt_of_ge hs hpos)
+  · obtain ⟨i, σ, hσ, hm⟩ := signed_witness (ε * (s + V)) (p - o) hsafe
+    have h := velocity_response_signed V ε r σ v i hV hv hσ
+      ((p, d, o, s, ω), 0) ⟨rfl, hd, by simpa using hm⟩
+      ((pr, dr, or_, sr, ωr), t) hrun
+    exact (infNorm_pos_iff_distanceSq pr or_).mp
+      (h.2.2.trans_le (by simpa using signed_le_infNorm (pr - or_) i σ hσ))
+
+noncomputable def instantVelocityControl (V Ω ε : ℝ) (p _d o : Vec2) (s ω r : ℝ) :=
+  velocityRobotControl V Ω ε p o s ω r
+
+@[spec] theorem instantVelocityControl_spec (V Ω ε : ℝ) (p d o : Vec2) (s ω r : ℝ) :
+    ⦃UnitDirection d⦄ instantVelocityControl V Ω ε p d o s ω r
+    ⦃fun (s, _ω, _r, o) => VelocityReady V ε p d o s⦄ := by
+  unfold instantVelocityControl velocityRobotControl
+  vcgen
+  constructor
+  all_goals vcgen
+  all_goals simp_all
+
+noncomputable def velocityDyn (_V ε r : ℝ) (v p d o : Vec2) (s ω : ℝ) :=
+  dyn ε 0 r v p d o s ω
+
+@[spec] theorem velocityDyn_spec (V ε r : ℝ) (hV : 0 ≤ V) (v p d o : Vec2) (s ω : ℝ) :
+    ⦃v 0 ^ 2 + v 1 ^ 2 ≤ V ^ 2 ∧ VelocityReady V ε p d o s⦄
+    velocityDyn V ε r v p d o s ω
+    ⦃fun (p, d, o, s, _ω) => VelocityInv p d o s⦄ := by
+  unfold velocityDyn dyn
+  vcgen (errorOnMissingSpec := false)
+  rename_i hpre
+  simp only [SetM.wp_pure, binderNameHint]
+  exact velocity_phase V ε r hV v p d o s ω hpre.1 hpre.2.1 hpre.2.2
+
+noncomputable def dwps_velocity' (V Ω ε : ℝ) (hV : 0 ≤ V)
+    (p d o v : Vec2) (s ω r : ℝ) : SetM (Vec2 × Vec2 × Vec2 × ℝ × ℝ × ℝ × Vec2)
+    requires VelocityInv p d o s
+    ensures (p, d, o, s, _ω, _r, _v) => VelocityInv p d o s
+    := do
+  let mut (p, d, o, s, ω, r, v) := (p, d, o, s, ω, r, v)
+  let n ← choose ℕ
+  for _ in [:n]
+      invariant _pref _suff => VelocityInv p d o s do
+    v ← ctrl_o V
+    let (s_new, ω_new, r_new, o_new) ← instantVelocityControl V Ω ε p d o s ω r
+    s := s_new
+    ω := ω_new
+    r := r_new
+    o := o_new
+    (p, d, o, s, ω) ← velocityDyn V ε r v p d o s ω
+  return (p, d, o, s, ω, r, v)
+
+theorem dwps_velocity_eq (V Ω ε : ℝ) (hV : 0 ≤ V)
+    (p d o v : Vec2) (s ω r : ℝ) :
+    dwps_velocity V Ω ε p d o v s ω r = dwps_velocity' V Ω ε hV p d o v s ω r := by rfl
+
+/-- Archive "Corollary 1.1: Velocity-controlled passive safety". -/
+theorem dwps_velocity_safe :
+    ∀ V Ω ε p d o v s ω r,
+      (0 ≤ V ∧ 0 < ε) → Initial p d o s →
+        ∀ res ∈ SetM.run (dwps_velocity V Ω ε p d o v s ω r),
+          let p_res := res.1
+          let o_res := res.2.2.1
+          let s_res := res.2.2.2.1
+          PassiveSafe p_res o_res s_res := by
+  intro V Ω ε p d o v s ω r hb hi res hrun
+  have hinit : VelocityInv p d o s := by
+    rcases hi with ⟨rfl, _, hd⟩
+    exact ⟨le_rfl, hd, by simp [PassiveSafe]⟩
+  exact ((dwps_velocity'.spec V Ω ε hb.1 p d o v s ω r).le_wp hinit res hrun).2.2
+
 def orientationProjection : (Vec2 × Vec2 × Vec2 × ℝ × ℝ × ℝ) × ℝ →
     (Vec2 × Vec2 × Vec2 × ℝ × ℝ) × ℝ :=
   fun ((p, d, o, s, ω, _β), t) => ((p, d, o, s, ω), t)
@@ -1334,6 +1711,172 @@ theorem dwpos_safe :
     p d o v s ω r β visible).le_wp ?_ res hrun
   rcases hinit with ⟨⟨rfl, _, hd⟩, _, hr⟩
   exact ⟨le_rfl, hd, hr, by simp⟩
+
+/-! ## Archive Corollary 2: Velocity-controlled passive orientation safety -/
+
+noncomputable def velocityAngularResponse (ε γ r σ : ℝ) :
+    (Vec2 × Vec2 × Vec2 × ℝ × ℝ × ℝ) × ℝ → ℝ :=
+  fun ((_p, _d, _o, s, _ω, β), t) => γ * |r| - σ * r * β - (ε - t) * s
+
+theorem velocityAngularResponse_hasPrime (ε γ r σ : ℝ) (v : Vec2) (D) :
+    HasPrime (Evolvable.denotation (orientationMotion 0 r v, time)) D
+      (velocityAngularResponse ε γ r σ)
+      (fun ((_p, _d, _o, s, ω, _β), _t) => s - σ * r * ω) := by
+  ode_deriv [velocityAngularResponse, orientationMotion, time]
+
+theorem velocity_angular_signed (ε γ r σ : ℝ) (v : Vec2)
+    (hr : r ≠ 0) (hσ : σ = 1 ∨ σ = -1) :
+    (fun st => curveError r st = 0 ∧ 0 < velocityAngularResponse ε γ r σ st)
+    [[evolve (orientationMotion 0 r v, time) (orientationDomain ε)]]
+    (fun ((_p, _d, _o, _s, _ω, β), _t) => σ * r * β < γ * |r|) := by
+  apply dC (cut := fun st => curveError r st = 0)
+  · exact fun st h => orientation_curve 0 r ε v hr st h.1
+  · intro st h res hrun
+    have hend := dIgt (ode := (orientationMotion 0 r v, time))
+      (domain := fun st => orientationDomain ε st ∧ curveError r st = 0)
+      (pre := fun st => 0 < velocityAngularResponse ε γ r σ st)
+      (velocityAngularResponse ε γ r σ)
+      (fun ((_p, _d, _o, s, ω, _β), _t) => s - σ * r * ω)
+      (velocityAngularResponse_hasPrime ε γ r σ v _)
+      (fun _ h => h) ?_ st h.2 res hrun
+    · rcases res with ⟨⟨p, d, o, s, ω, β⟩, t⟩
+      have hdom := dW (ode := (orientationMotion 0 r v, time))
+        (domain := fun st => orientationDomain ε st ∧ curveError r st = 0)
+        (pre := fun _ => True) (fun _ h => h) st trivial ((p, d, o, s, ω, β), t) hrun
+      have hreserve := mul_nonneg (sub_nonneg.mpr hdom.1.1) hdom.1.2
+      dsimp [velocityAngularResponse] at hend ⊢
+      linarith
+    · rintro ⟨⟨p, d, o, s, ω, β⟩, t⟩ ⟨hdom, hcurve⟩
+      dsimp [curveError] at hcurve
+      rcases hσ with rfl | rfl <;> dsimp <;> nlinarith [hdom.2]
+
+@[reducible] def VelocityOrientationInv (γ : ℝ) (p d o : Vec2)
+    (s r β visible : ℝ) : Prop :=
+  0 ≤ s ∧ UnitDirection d ∧ r ≠ 0 ∧
+    (0 < s → 0 < distanceSq p o ∨ (¬0 < visible ∧ |β| < γ))
+
+@[reducible] def VelocityOrientationReady (V ε γ : ℝ) (p d o : Vec2)
+    (s r β visible : ℝ) : Prop :=
+  UnitDirection d ∧ r ≠ 0 ∧ (s = 0 ∨
+    (β = 0 ∧ (0 < visible → VelocitySafe V ε p o s) ∧ ε * s < γ * |r|))
+
+theorem velocity_orientation_phase (V ε γ r visible : ℝ) (hV : 0 ≤ V)
+    (v p d o : Vec2) (s ω β : ℝ) (hv : v 0 ^ 2 + v 1 ^ 2 ≤ V ^ 2)
+    (hcurve : ω * r = s) (hready : VelocityOrientationReady V ε γ p d o s r β visible) :
+    ∀ res ∈ SetM.run (evolve (orientationMotion 0 r v, time) (orientationDomain ε)
+      ((p, d, o, s, ω, β), 0)),
+      let ((pr, dr, or_, sr, _ω, βr), _t) := res
+      VelocityOrientationInv γ pr dr or_ sr r βr visible := by
+  rintro ⟨⟨pr, dr, or_, sr, ωr, βr⟩, t⟩ hrun
+  rcases hready with ⟨hd, hr, hready⟩
+  have hproj := orientation_projection 0 r ε v p d o s ω β 0
+    ((pr, dr, or_, sr, ωr, βr), t) hrun
+  have hdom := dW (ode := (motion 0 r v, time)) (domain := domain ε)
+    (pre := fun _ => True) (fun _ h => h)
+    ((p, d, o, s, ω), 0) trivial ((pr, dr, or_, sr, ωr), t) hproj
+  have hdr := motion_unit_preserved 0 r ε v
+    ((p, d, o, s, ω), 0) hd ((pr, dr, or_, sr, ωr), t) hproj
+  apply And.intro hdom.2 (And.intro hdr (And.intro hr ?_))
+  intro hpos
+  rcases hready with rfl | ⟨rfl, hvis, hturn⟩
+  · have hs := speed_upper 0 r ε 0 v le_rfl
+      ((p, d, o, 0, ω), 0) le_rfl ((pr, dr, or_, sr, ωr), t) hproj
+    exact False.elim (not_lt_of_ge hs hpos)
+  · by_cases hvisible : 0 < visible
+    · exact Or.inl ((velocity_phase V ε r hV v p d o s ω hv hd (.inr (hvis hvisible))
+        ((pr, dr, or_, sr, ωr), t) hproj).2.2 hpos)
+    · have hbound (σ : ℝ) (hσ : σ = 1 ∨ σ = -1) : σ * r * βr < γ * |r| := by
+        apply velocity_angular_signed ε γ r σ v hr hσ
+          ((p, d, o, s, ω, 0), 0) ?_ ((pr, dr, or_, sr, ωr, βr), t) hrun
+        constructor
+        · dsimp [curveError]
+          nlinarith [hcurve]
+        · dsimp [velocityAngularResponse]
+          simp only [mul_zero, sub_zero]
+          linarith
+      have hab : |r * βr| < γ * |r| :=
+        abs_lt.mpr ⟨by nlinarith [hbound (-1) (.inr rfl)],
+          by nlinarith [hbound 1 (.inl rfl)]⟩
+      rw [abs_mul] at hab
+      have hβ : |βr| < γ := by nlinarith [abs_pos.mpr hr]
+      exact Or.inr ⟨hvisible, hβ⟩
+
+noncomputable def instantOrientationControl (V ε γ : ℝ) (p _d o : Vec2)
+    (s ω r β visible : ℝ) :=
+  velocityOrientationControl V ε γ p o s ω r β visible
+
+@[spec] theorem instantOrientationControl_spec (V ε γ : ℝ) (p d o : Vec2)
+    (s ω r β visible : ℝ) :
+    ⦃UnitDirection d ∧ r ≠ 0⦄ instantOrientationControl V ε γ p d o s ω r β visible
+    ⦃fun (s, _ω, r, o, β, visible) => VelocityOrientationReady V ε γ p d o s r β visible⦄ := by
+  unfold instantOrientationControl velocityOrientationControl
+  vcgen
+  constructor
+  all_goals vcgen
+  all_goals simp_all
+
+noncomputable def velocityOrientationStep (_V ε _γ r _visible : ℝ)
+    (v p d o : Vec2) (s ω β : ℝ) :=
+  evolve (orientationMotion 0 r v, time) (orientationDomain ε) ((p, d, o, s, ω, β), 0)
+
+@[spec] theorem velocityOrientationStep_spec (V ε γ r visible : ℝ) (hV : 0 ≤ V)
+    (v p d o : Vec2) (s ω β : ℝ) :
+    ⦃v 0 ^ 2 + v 1 ^ 2 ≤ V ^ 2 ∧ ω * r = s ∧
+      VelocityOrientationReady V ε γ p d o s r β visible⦄
+    velocityOrientationStep V ε γ r visible v p d o s ω β
+    ⦃fun ((p, d, o, s, _ω, β), _t) => VelocityOrientationInv γ p d o s r β visible⦄ := by
+  exact ⟨fun h => velocity_orientation_phase V ε γ r visible hV
+    v p d o s ω β h.1 h.2.1 h.2.2⟩
+
+noncomputable def dwpos_velocity' (V ε γ : ℝ) (hV : 0 ≤ V)
+    (p d o v : Vec2) (s ω r β visible : ℝ) :
+    SetM (Vec2 × Vec2 × Vec2 × ℝ × ℝ × ℝ × Vec2 × ℝ × ℝ)
+    requires VelocityOrientationInv γ p d o s r β visible
+    ensures (p, d, o, s, _ω, r, _v, β, visible) =>
+      VelocityOrientationInv γ p d o s r β visible
+    := do
+  let mut (p, d, o, s, ω, r, v, β, visible) := (p, d, o, s, ω, r, v, β, visible)
+  let n ← choose ℕ
+  for _ in [:n]
+      invariant _pref _suff => VelocityOrientationInv γ p d o s r β visible do
+    v ← ctrl_o V
+    let (s_new, ω_new, r_new, o_new, β_new, visible_new) ←
+      instantOrientationControl V ε γ p d o s ω r β visible
+    s := s_new
+    ω := ω_new
+    r := r_new
+    o := o_new
+    β := β_new
+    visible := visible_new
+    ω ← choose ℝ
+    ensure (ω * r = s)
+    let (res, _t) ← velocityOrientationStep V ε γ r visible v p d o s ω β
+    (p, d, o, s, ω, β) := res
+  return (p, d, o, s, ω, r, v, β, visible)
+
+theorem dwpos_velocity_eq (V ε γ : ℝ) (hV : 0 ≤ V)
+    (p d o v : Vec2) (s ω r β visible : ℝ) :
+    dwpos_velocity V ε γ p d o v s ω r β visible =
+      dwpos_velocity' V ε γ hV p d o v s ω r β visible := by rfl
+
+/-- Archive "Corollary 2: Velocity-controlled passive orientation safety". -/
+theorem dwpos_velocity_safe :
+    ∀ V ε γ p d o v s ω r β visible,
+      (0 ≤ V ∧ 0 < ε ∧ 0 < γ) → (Initial p d o s ∧ β = 0 ∧ r ≠ 0) →
+        ∀ res ∈ SetM.run (dwpos_velocity V ε γ p d o v s ω r β visible),
+          let p_res := res.1
+          let o_res := res.2.2.1
+          let s_res := res.2.2.2.1
+          let β_res := res.2.2.2.2.2.2.2.1
+          let visible_res := res.2.2.2.2.2.2.2.2
+          0 < s_res → 0 < distanceSq p_res o_res ∨
+            (¬0 < visible_res ∧ |β_res| < γ) := by
+  intro V ε γ p d o v s ω r β visible hb hi res hrun
+  have hinit : VelocityOrientationInv γ p d o s r β visible := by
+    rcases hi with ⟨⟨rfl, _, hd⟩, _, hr⟩
+    exact ⟨le_rfl, hd, hr, by simp⟩
+  exact ((dwpos_velocity'.spec V ε γ hb.1 p d o v s ω r β visible).le_wp
+    hinit res hrun).2.2.2
 
 theorem passiveResponse_offset_preserved (M b V ε a r σ C : ℝ) (v : Vec2) (i : Fin 2)
     (hb : 0 < b) (hV : 0 ≤ V) (hM : M = -b ∨ 0 ≤ M) (ha : a ≤ M)

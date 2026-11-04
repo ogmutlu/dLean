@@ -15,10 +15,6 @@
         "IJRR17.dwwp_live",
         "IJRR17.dwcx_live"
     ],
-    "permitted_axioms": [
-        "propext",
-        "Quot.sound",
-        "Classical.choice"
-    ],
+    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
     "enable_nanoda": false
 }

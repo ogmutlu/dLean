@@ -10,10 +10,10 @@ authors' `keymaera/IJRR17/keYmaeraX/robix.kyx` archive at revision
 `b9d7cb584e8fd1c3cc4f30644e82ba12cbb1d6fe`.
 
 This replaces the earlier RSS 2013 transcription. The scope is all main journal
-Theorems 1--12. The archive supplies Theorems 1--9 and 11--12; Model 12 / Theorem 10
+Theorems 1--12 and archive Corollaries 1.1--1.3 and 2. The archive supplies
+Theorems 1--9 and 11--12; Model 12 / Theorem 10
 is transcribed directly from journal Section 7.4, since it is absent from the
-KeYmaera X archive. Archive corollaries and supplementary Theorems 13--15 are
-outside this scope.
+KeYmaera X archive. Supplementary Theorems 13--15 are outside this scope.
 
 The archive supplies the exact program choices and initial assumptions where the
 printed article differs. See `keymaera/IJRR17/README.md` for the correspondence and
@@ -139,10 +139,82 @@ def dwss (A b Ω ε : ℝ) (p d o : Vec2) (s ω r : ℝ) :=
   dynamicWindow b Ω ε (pure 0) (pure A) (fun p o s _ => Safe A b 0 ε p o s)
     (fun p s => pure (p, s)) (fun a => pure a) p d o 0 s ω r
 
+/-! ### Corollaries 1.2 and 1.3: margins for imperfect trajectories -/
+
+/-- Archive "Corollary 1.2: Static safety with margin for imperfect trajectories":
+the squared direction length is within `Δd` of one. -/
+@[reducible]
+def ApproxDirection (Δd : ℝ) (d : Vec2) : Prop :=
+  1 - Δd ≤ d 0 ^ 2 + d 1 ^ 2 ∧ d 0 ^ 2 + d 1 ^ 2 ≤ 1 + Δd
+
+@[reducible]
+def ImperfectInitial (Δd : ℝ) (p d o : Vec2) (s : ℝ) : Prop :=
+  s = 0 ∧ 0 < distanceSq p o ∧ ApproxDirection Δd d
+
+/-- Corollary 1.2's margin scales both stopping and reaction distance by `1 + Δd`. -/
+@[reducible]
+def ImperfectSafe (A b ε Δd : ℝ) (p o : Vec2) (s : ℝ) : Prop :=
+  (1 + Δd) * stoppingMargin A b 0 ε s < infNorm (p - o)
+
+/-- Archive "Corollary 1.2: Static safety with margin for imperfect trajectories". -/
+def dwss_imperfect (A b Ω ε Δd : ℝ) (p d o : Vec2) (s ω r : ℝ) :=
+  dynamicWindow b Ω ε (pure 0) (pure A) (fun p o s _ => ImperfectSafe A b ε Δd p o s)
+    (fun p s => pure (p, s)) (fun a => pure a) p d o 0 s ω r
+
+/-- Archive "Corollary 1.3: Static safety with margin for imperfect trajectories
+(no division)": the polynomial clearance guard, before division by `2*b`. -/
+@[reducible]
+def ImperfectSafeNoDiv (A b ε Δd : ℝ) (p o : Vec2) (s : ℝ) : Prop :=
+  (1 + Δd) * s ^ 2 + (1 + Δd) * (A + b) * (A * ε ^ 2 + 2 * ε * s) <
+    2 * b * infNorm (p - o)
+
+/-- Archive "Corollary 1.3: Static safety with margin for imperfect trajectories
+(no division)". As in the other models, acceleration and the reset clock are local;
+their source initial values `a = t = 0` do not affect this projected safety program.
+The source's initial `ω = 0` and `r = 1` are retained in its challenge theorem. -/
+def dwss_imperfect_no_div (A b Ω ε Δd : ℝ) (p d o : Vec2) (s ω r : ℝ) :=
+  dynamicWindow b Ω ε (pure 0) (pure A) (fun p o s _ => ImperfectSafeNoDiv A b ε Δd p o s)
+    (fun p s => pure (p, s)) (fun a => pure a) p d o 0 s ω r
+
 /-- Model 3 / archive Theorem 2: passive safety with maximum acceleration. -/
 def dwps (A b V Ω ε : ℝ) (p d o v : Vec2) (s ω r : ℝ) :=
   dynamicWindow b Ω ε (ctrl_o V) (pure A) (fun p o s _ => Safe A b V ε p o s)
     (fun p s => pure (p, s)) (fun a => pure a) p d o v s ω r
+
+/-! ### Corollary 1.1: instantaneous velocity control -/
+
+/-- Archive "Corollary 1.1: Velocity-controlled passive safety": no braking
+distance is needed because the controller can set the speed to zero instantly. -/
+@[reducible]
+def VelocitySafe (V ε : ℝ) (p o : Vec2) (s : ℝ) : Prop :=
+  ε * (s + V) < infNorm (p - o)
+
+/-- Corollary 1.1's stop-or-select-velocity controller. -/
+def velocityRobotControl (V Ω ε : ℝ) (p o : Vec2) (_s _ω r : ℝ) :=
+  (pure (0, 0, r, o)) <|> (do
+    let s ← choose ℝ
+    ensure (0 ≤ s)
+    let ω ← choose ℝ
+    ensure (-Ω ≤ ω ∧ ω ≤ Ω)
+    let r ← choose ℝ
+    let o ← choose Vec2
+    ensure (Curve s ω r ∧ VelocitySafe V ε p o s)
+    return (s, ω, r, o))
+
+/-- Archive "Corollary 1.1: Velocity-controlled passive safety". Using `motion 0`
+keeps the selected speed and angular velocity fixed during each physical phase. -/
+def dwps_velocity (V Ω ε : ℝ) (p d o v : Vec2) (s ω r : ℝ) := do
+  let mut (p, d, o, s, ω, r, v) := (p, d, o, s, ω, r, v)
+  let n ← choose ℕ
+  for _ in [:n] do
+    v ← ctrl_o V
+    let (s_new, ω_new, r_new, o_new) ← velocityRobotControl V Ω ε p o s ω r
+    s := s_new
+    ω := ω_new
+    r := r_new
+    o := o_new
+    (p, d, o, s, ω) ← dyn ε 0 r v p d o s ω
+  return (p, d, o, s, ω, r, v)
 
 /-! ## Models 4--5: passive-friendly safety -/
 
@@ -231,6 +303,43 @@ def dwpos (A b V ε γ : ℝ) (p d o v : Vec2) (s ω r β visible : ℝ) := do
     ω ← choose ℝ
     ensure (ω * r = s)
     let (res, _t) ← evolve (orientationMotion a r v, time) (orientationDomain ε)
+      ((p, d, o, s, ω, β), 0)
+    (p, d, o, s, ω, β) := res
+  return (p, d, o, s, ω, r, v, β, visible)
+
+/-! ### Corollary 2: velocity-controlled passive orientation safety -/
+
+/-- Archive "Corollary 2: Velocity-controlled passive orientation safety".
+The archive does not test `0 ≤ s` here; the subsequent evolution domain does. -/
+def velocityOrientationControl (V ε γ : ℝ) (p o : Vec2) (_s ω r β visible : ℝ) :=
+  (pure (0, 0, r, o, β, visible)) <|> (do
+    let s ← choose ℝ
+    let r ← choose ℝ
+    ensure (r ≠ 0)
+    let o ← choose Vec2
+    let visible ← choose ℝ
+    ensure (0 < visible → VelocitySafe V ε p o s)
+    ensure (ε * s < γ * |r|)
+    return (s, ω, r, o, 0, visible))
+
+/-- Archive "Corollary 2: Velocity-controlled passive orientation safety".
+Every iteration resets the clock and reestablishes `ω*r = s` before evolution. -/
+def dwpos_velocity (V ε γ : ℝ) (p d o v : Vec2) (s ω r β visible : ℝ) := do
+  let mut (p, d, o, s, ω, r, v, β, visible) := (p, d, o, s, ω, r, v, β, visible)
+  let n ← choose ℕ
+  for _ in [:n] do
+    v ← ctrl_o V
+    let (s_new, ω_new, r_new, o_new, β_new, visible_new) ←
+      velocityOrientationControl V ε γ p o s ω r β visible
+    s := s_new
+    ω := ω_new
+    r := r_new
+    o := o_new
+    β := β_new
+    visible := visible_new
+    ω ← choose ℝ
+    ensure (ω * r = s)
+    let (res, _t) ← evolve (orientationMotion 0 r v, time) (orientationDomain ε)
       ((p, d, o, s, ω, β), 0)
     (p, d, o, s, ω, β) := res
   return (p, d, o, s, ω, r, v, β, visible)

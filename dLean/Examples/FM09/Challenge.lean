@@ -4,7 +4,7 @@ open dLean
 
 namespace FM09
 
-/-- Initially separated aircraft remain separated after any finite NTRM run. -/
+/-- Initially separated aircraft remain separated after any NTRM run. -/
 theorem ntrm_safe :
     ∀ (p : ℝ) (x d y e : Vec2), Separated p x y →
       ∀ res ∈ SetM.run (ntrm p x d y e),
@@ -12,6 +12,14 @@ theorem ntrm_safe :
         let y_res := res.2
         Separated p x_res y_res := sorry
 
+/-- For any fleet size, initially mutually separated aircraft
+remain separated after any NTRM run. -/
+theorem ntrm_many_safe :
+    ∀ (n : ℕ) (p : ℝ) (x d : Fin n → Vec2), SeparatedMany p x →
+      ∀ res ∈ SetM.run (ntrm_many p x d), SeparatedMany p res := sorry
+
+/-- Initially separated aircraft remain separated after any FTRM run. But this
+does not establish safety throughout every moment of the FTRM run. -/
 theorem ftrm_end_safe :
     ∀ (p r : ℝ) (x d y e : Vec2),
       0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ r > 0 ∧ Separated (far p r) x y →
@@ -20,25 +28,53 @@ theorem ftrm_end_safe :
           let y_res := res.2.2.1
           Separated p x_res y_res := sorry
 
-/-- Throughout safety for the FTRM: after any number of its
-completed iterations, every prefix of every additional phase is separated.
-Entry may take arbitrarily many turns and exit has no final separation guard. -/
+/-- Throughout safety for the FTRM: after any number of (incl. zero) FTRM
+iterations, running any prefix of another FTRM iteration is safe. -/
 theorem ftrm_throughout_safe :
     ∀ (p r : ℝ) (x d y e : Vec2),
       0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ 0 < r ∧ Separated (far p r) x y →
-        ∀ tmp ∈ SetM.run (ftrm p r x d y e),
-        let x := tmp.1
-        let d := tmp.2.1
-        let y := tmp.2.2.1
-        let e := tmp.2.2.2.1
-        let r := tmp.2.2.2.2
+        ∀ st ∈ SetM.run (ftrm p r x d y e),
+        let x := st.1
+        let d := st.2.1
+        let y := st.2.2.1
+        let e := st.2.2.2.1
+        let r := st.2.2.2.2
           ∀ k : Fin 5, ∀ res ∈ SetM.run (ftrmPrefix p r k x d y e),
           let x_res := res.1
           let y_res := res.2
           Separated p x_res y_res := sorry
 
 
-/-! Following are not safety-critical. They are lemmata from the paper. -/
+/-- Theorem 1 (modified entry): every complete modified FTRM run is safe whenever
+the replacement entry satisfies the bounded-time safety and tangency contract. -/
+theorem ftrm_modified_end_safe :
+    ∀ (entry : EntryProcedure) (bound : EntryTimeBound) (p r : ℝ) (x d y e : Vec2),
+      ModifiedEntryContract entry bound p →
+      0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ 0 < r ∧ Separated (far p r) x y →
+        ∀ res ∈ SetM.run (ftrmModified entry bound p r x d y e),
+          let x_res := res.1
+          let y_res := res.2.2.1
+          Separated p x_res y_res := sorry
+
+/-- Theorem 1 (modified entry), throughout: after any number of complete cycles,
+every phase prefix remains safe, including every entry time between zero and `T`. -/
+theorem ftrm_modified_throughout_safe :
+    ∀ (entry : EntryProcedure) (bound : EntryTimeBound) (p r : ℝ) (x d y e : Vec2),
+      ModifiedEntryContract entry bound p →
+      0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ 0 < r ∧ Separated (far p r) x y →
+        ∀ st ∈ SetM.run (ftrmModified entry bound p r x d y e),
+        let x := st.1
+        let d := st.2.1
+        let y := st.2.2.1
+        let e := st.2.2.2.1
+        let r := st.2.2.2.2
+          ∀ k : Fin 5,
+          ∀ res ∈ SetM.run (ftrmModifiedPrefix entry bound p r k x d y e),
+            let x_res := res.1
+            let y_res := res.2
+            Separated p x_res y_res := sorry
+
+/-! ## The following are not safety-critical. They are lemmata from the paper. -/
 
 /-- AC1 (free phase): free flight preserves far separation (its domain) and
 the linear speeds. Prefix-closed, hence throughout. -/

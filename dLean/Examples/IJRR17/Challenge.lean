@@ -13,11 +13,41 @@ theorem dwss_safe :
           let o_res := res.2.2.1
           0 < distanceSq p_res o_res := sorry
 
+/-- Archive "Corollary 1.2: Static safety with margin for imperfect trajectories". -/
+theorem dwss_imperfect_safe :
+    ∀ A b Ω ε Δd p d o s ω r,
+      Bounds A b 0 ε → (0 ≤ Δd ∧ Δd ≤ 1) → ImperfectInitial Δd p d o s →
+        ∀ res ∈ SetM.run (dwss_imperfect A b Ω ε Δd p d o s ω r),
+          let p_res := res.1
+          let o_res := res.2.2.1
+          0 < distanceSq p_res o_res := sorry
+
+/-- Archive "Corollary 1.3: Static safety with margin for imperfect trajectories
+(no division)", including its fixed initial angular velocity and radius. -/
+theorem dwss_imperfect_no_div_safe :
+    ∀ A b Ω ε Δd p d o s ω r,
+      Bounds A b 0 ε → (0 ≤ Δd ∧ Δd ≤ 1) →
+      (ImperfectInitial Δd p d o s ∧ ω = 0 ∧ r = 1) →
+        ∀ res ∈ SetM.run (dwss_imperfect_no_div A b Ω ε Δd p d o s ω r),
+          let p_res := res.1
+          let o_res := res.2.2.1
+          0 < distanceSq p_res o_res := sorry
+
 /-- Journal Theorem 2 / archive "Theorem 2: Passive safety". -/
 theorem dwps_safe :
     ∀ A b V Ω ε p d o v s ω r,
       Bounds A b V ε → Initial p d o s →
         ∀ res ∈ SetM.run (dwps A b V Ω ε p d o v s ω r),
+          let p_res := res.1
+          let o_res := res.2.2.1
+          let s_res := res.2.2.2.1
+          PassiveSafe p_res o_res s_res := sorry
+
+/-- Archive "Corollary 1.1: Velocity-controlled passive safety". -/
+theorem dwps_velocity_safe :
+    ∀ V Ω ε p d o v s ω r,
+      (0 ≤ V ∧ 0 < ε) → Initial p d o s →
+        ∀ res ∈ SetM.run (dwps_velocity V Ω ε p d o v s ω r),
           let p_res := res.1
           let o_res := res.2.2.1
           let s_res := res.2.2.2.1
@@ -41,6 +71,19 @@ theorem dwpos_safe :
       Bounds A b V ε → 0 < γ →
       (Initial p d o s ∧ β = 0 ∧ r ≠ 0) →
         ∀ res ∈ SetM.run (dwpos A b V ε γ p d o v s ω r β visible),
+          let p_res := res.1
+          let o_res := res.2.2.1
+          let s_res := res.2.2.2.1
+          let β_res := res.2.2.2.2.2.2.2.1
+          let visible_res := res.2.2.2.2.2.2.2.2
+          0 < s_res → 0 < distanceSq p_res o_res ∨
+            (¬0 < visible_res ∧ |β_res| < γ) := sorry
+
+/-- Archive "Corollary 2: Velocity-controlled passive orientation safety". -/
+theorem dwpos_velocity_safe :
+    ∀ V ε γ p d o v s ω r β visible,
+      (0 ≤ V ∧ 0 < ε ∧ 0 < γ) → (Initial p d o s ∧ β = 0 ∧ r ≠ 0) →
+        ∀ res ∈ SetM.run (dwpos_velocity V ε γ p d o v s ω r β visible),
           let p_res := res.1
           let o_res := res.2.2.1
           let s_res := res.2.2.2.1

@@ -1,15 +1,6 @@
 import dLean.Examples.FM09.Model
 import dLean.Tactic.OdeDeriv
 
-/-!
-# FM09 throughout safety
-
-Proofs for `Challenge.lean`, following the phase verification plan AC1–AC7.
-The AC1 phase contracts also yield the complete NTRM safety theorem.
-The shared model is imported from `Model.lean`; `Challenge.lean` is not imported.
-Comparator checks the independent proofs under the same names in namespace `FM09`.
--/
-
 open dLean
 open Std.WP
 open scoped RealInnerProductSpace
@@ -202,6 +193,102 @@ theorem ntrm_safe :
         Separated p x_res y_res := by
   intro p x d y e hpre res hrun
   exact (ntrm'.spec p x d y e).le_wp hpre res hrun
+
+/-- A simultaneous fleet evolution projects to the existing two-aircraft ODE. -/
+theorem flight_many_pair {n : ℕ} (ω : Fin n → ℝ) (domain : (Fin n → Vec2) × (Fin n → Vec2) → Prop)
+    (x d : Fin n → Vec2) (i j : Fin n)
+    (res : (Fin n → Vec2) × (Fin n → Vec2))
+    (hrun : res ∈ SetM.run (evolve (flight_many ω) domain (x, d))) :
+    (res.1 i, res.2 i, res.1 j, res.2 j) ∈
+      SetM.run (evolve (flight (ω i) (ω j)) (fun _ => True) (x i, d i, x j, d j)) := by
+  apply (evolveSemantic_spec (Evolvable.denotation (flight_many ω)) domain (x, d)).le_wp
+    ?_ res hrun
+  intro duration hduration trajectory hevolution
+  apply SemanticODE.mem_evolveSemantic _ _ _ duration
+    (fun t => ((trajectory t).1 i, (trajectory t).2 i,
+      (trajectory t).1 j, (trajectory t).2 j)) hduration
+  apply And.intro
+  · simp only [hevolution.1]
+  · apply And.intro (fun _ _ => trivial)
+    intro t ht
+    have hx := OdeDeriv.hasDerivWithinAt_fst (hevolution.2.2 t ht)
+    have hd := OdeDeriv.hasDerivWithinAt_snd (hevolution.2.2 t ht)
+    exact (OdeDeriv.hasDerivWithinAt_apply i hx).prodMk
+      ((OdeDeriv.hasDerivWithinAt_apply i hd).prodMk
+        ((OdeDeriv.hasDerivWithinAt_apply j hx).prodMk
+          (OdeDeriv.hasDerivWithinAt_apply j hd)))
+
+/-- Every pair remains separated during the unrestricted common circular flight. -/
+theorem circ_many_safe {n : ℕ} (p ω : ℝ) (c : Vec2)
+    (domain : (Fin n → Vec2) × (Fin n → Vec2) → Prop) (x d : Fin n → Vec2) :
+    RMany ω c x d ∧ SeparatedMany p x →
+      ∀ res ∈ SetM.run (evolve (flight_many (fun _ => ω)) domain (x, d)),
+        SeparatedMany p res.1 := by
+  intro hpre res hrun i j hij
+  exact (AC1_circ p ω c (fun _ => True) (x i) (d i) (x j) (d j)
+    ⟨⟨hpre.1 i, hpre.1 j⟩, hpre.2 i j hij⟩ _
+    (flight_many_pair (fun _ => ω) domain x d i j res hrun)).2
+
+/-- A single free-flight segment, with the same domain as the model. -/
+def freeStep_many {n : ℕ} (p : ℝ) (ω : Fin n → ℝ) (x d : Fin n → Vec2) :=
+  evolve (flight_many ω) (fun (x, _) => SeparatedMany p x) (x, d)
+
+@[spec] theorem freeStep_many_spec {n : ℕ} (p : ℝ) (ω : Fin n → ℝ) (x d : Fin n → Vec2) :
+    ⦃SeparatedMany p x⦄ freeStep_many p ω x d ⦃fun (xr, _) => SeparatedMany p xr⦄ := by
+  exact ⟨fun hpre => dW (ode := flight_many ω)
+    (pre := fun (x, _) => SeparatedMany p x) (fun _ hdomain => hdomain) (x, d) hpre⟩
+
+/-- The free-flight loop with its mutual-separation invariant. -/
+def free_many' {n : ℕ} (p : ℝ) (x d : Fin n → Vec2) : SetM ((Fin n → Vec2) × (Fin n → Vec2))
+    requires SeparatedMany p x
+    ensures (xr, _) => SeparatedMany p xr
+    := do
+  let mut (x, d) := (x, d)
+  let iterations ← choose ℕ
+  for _ in [:iterations]
+      invariant _pref _suff => SeparatedMany p x do
+    let ω ← choose (Fin n → ℝ)
+    (x, d) ← freeStep_many p ω x d
+  return (x, d)
+
+theorem free_many_eq {n : ℕ} (p : ℝ) (x d : Fin n → Vec2) : free_many p x d = free_many' p x d := by
+  rfl
+
+/-- The unrestricted circular phase, with parameters used by its contract. -/
+def circStep_many {n : ℕ} (_p ω : ℝ) (_c : Vec2) (x d : Fin n → Vec2) :=
+  evolve (flight_many (fun _ => ω)) (fun _ => True) (x, d)
+
+@[spec] theorem circStep_many_spec {n : ℕ} (p ω : ℝ) (c : Vec2) (x d : Fin n → Vec2) :
+    ⦃RMany ω c x d ∧ SeparatedMany p x⦄ circStep_many p ω c x d
+    ⦃fun (xr, _) => SeparatedMany p xr⦄ := by
+  exact ⟨fun hpre => circ_many_safe p ω c (fun _ => True) x d hpre⟩
+
+/-- Compose free flight, shared agreement, instant entry, and circular flight. -/
+def ntrm_many' {n : ℕ} (p : ℝ) (x d : Fin n → Vec2) : SetM (Fin n → Vec2)
+    requires SeparatedMany p x
+    ensures xr => SeparatedMany p xr
+    := do
+  let mut (x, d) := (x, d)
+  let iterations ← choose ℕ
+  for _ in [:iterations]
+      invariant _pref _suff => SeparatedMany p x do
+    (x, d) ← free_many' p x d
+    let (ω, c) ← agree
+    d := entry_n_many ω c x
+    (x, d) ← circStep_many p ω c x d
+  return x
+where finally
+  | spec => all_goals simp_all [entry_n_many]
+
+theorem ntrm_many_eq {n : ℕ} (p : ℝ) (x d : Fin n → Vec2) : ntrm_many p x d = ntrm_many' p x d := by
+  rfl
+
+/-- For any fleet size, initially mutually separated aircraft remain separated after NTRM. -/
+theorem ntrm_many_safe :
+    ∀ (n : ℕ) (p : ℝ) (x d : Fin n → Vec2), SeparatedMany p x →
+      ∀ res ∈ SetM.run (ntrm_many p x d), SeparatedMany p res := by
+  intro n p x d hpre res hrun
+  exact (ntrm_many'.spec p x d).le_wp hpre res hrun
 
 def agree_f' (p : ℝ) (x d y e : Vec2) : SetM (ℝ × Vec2 × ℝ)
     requires True
@@ -1181,12 +1268,12 @@ theorem ftrm_end_safe :
 theorem ftrm_throughout_safe :
     ∀ (p r : ℝ) (x d y e : Vec2),
       0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ 0 < r ∧ Separated (far p r) x y →
-        ∀ tmp ∈ SetM.run (ftrm p r x d y e),
-        let x := tmp.1
-        let d := tmp.2.1
-        let y := tmp.2.2.1
-        let e := tmp.2.2.2.1
-        let r := tmp.2.2.2.2
+        ∀ st ∈ SetM.run (ftrm p r x d y e),
+        let x := st.1
+        let d := st.2.1
+        let y := st.2.2.1
+        let e := st.2.2.2.1
+        let r := st.2.2.2.2
           ∀ k : Fin 5, ∀ res ∈ SetM.run (ftrmPrefix p r k x d y e),
           let x_res := res.1
           let y_res := res.2
@@ -1197,5 +1284,181 @@ theorem ftrm_throughout_safe :
   obtain ⟨hri, hdi, hsafe⟩ := (ftrm_spec p r x d y e).le_wp
     ⟨hp, hr.le, hde, separated_of_far p r x y hp hr.le hsep⟩ (xi, di, yi, ei, ri) hrun
   exact (ftrmPrefix_spec p ri k xi di yi ei).le_wp ⟨hp, hri, hdi, hsafe⟩ res hprefix
+
+/-! ## Theorem 1: arbitrary modified entry procedures -/
+
+/-- AC2 for a clocked entry with independent, time-varying turn rates. -/
+theorem entryDynamics_speeds (turnX turnY : ℝ → ℝ) (T : ℝ) (x d y e : Vec2) :
+    wp (evolve (entryDynamics turnX turnY) (entryDomain T)
+      ((x, d, y, e), (0 : ℝ)))
+      (fun res => ‖res.1.2.1‖ = ‖d‖ ∧ ‖res.1.2.2.2‖ = ‖e‖) estack⟨⟩ := by
+  apply (evolveSemantic_spec (Evolvable.denotation (entryDynamics turnX turnY))
+    (entryDomain T) ((x, d, y, e), (0 : ℝ))
+    (Q := fun res => ‖res.1.2.1‖ = ‖d‖ ∧ ‖res.1.2.2.2‖ = ‖e‖)).le_wp
+  intro duration htime path hevo
+  have hc := fun t ht => flight_components (turnX t) (turnY t) (hevo.2.2.1 t ht)
+  simpa only [hevo.1, velocityD, velocityE] using
+    And.intro
+      (speed_constant_variable turnX (fun t => velocityD (path t).1) duration htime
+        (fun t ht => (hc t ht).2.1))
+      (speed_constant_variable turnY (fun t => velocityE (path t).1) duration htime
+        (fun t ht => (hc t ht).2.2.2))
+
+theorem modifiedEntryEvol_speeds (entry : EntryProcedure) (bound : EntryTimeBound)
+    (r ω : ℝ) (c x d y e : Vec2) :
+    wp (modifiedEntryEvol entry bound r ω c x d y e)
+      (fun res => ‖res.1.2.1‖ = ‖d‖ ∧ ‖res.1.2.2.2‖ = ‖e‖) estack⟨⟩ := by
+  exact WPMonad.bind_le_wp_bind (entry r ω c x d y e)
+    (fun (turnX, turnY) =>
+      evolve (entryDynamics turnX turnY) (entryDomain (bound r ω c x d y e))
+        ((x, d, y, e), (0 : ℝ)))
+    (fun res => ‖res.1.2.1‖ = ‖d‖ ∧ ‖res.1.2.2.2‖ = ‖e‖) estack⟨⟩
+    (fun (turnX, turnY) _ => entryDynamics_speeds turnX turnY _ x d y e)
+
+def modifiedEntryEvolSafe (entry : EntryProcedure) (bound : EntryTimeBound)
+    (_p r ω : ℝ) (c x d y e : Vec2) :=
+  modifiedEntryEvol entry bound r ω c x d y e
+
+@[spec] theorem modifiedEntryEvolSafe_spec (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r ω : ℝ) (c x d y e : Vec2) :
+    ⦃ModifiedEntryContract entry bound p ∧
+      0 ≤ p ∧ 0 ≤ r ∧ C r x d y e c ∧ (r * ω) ^ 2 = ‖d‖ ^ 2 ∧
+      ‖e‖ = ‖d‖ ∧ Separated (far p r) x y⦄
+    modifiedEntryEvolSafe entry bound p r ω c x d y e
+    ⦃fun (st, t) => Separated p st.1 st.2.2.1 ∧
+      (t = bound r ω c x d y e → R ω c st.1 st.2.1 st.2.2.1 st.2.2.2) ∧
+      ‖st.2.1‖ = ‖d‖ ∧ ‖st.2.2.2‖ = ‖e‖⦄ := by
+  exact ⟨fun ⟨hcontract, hpre⟩ res hrun =>
+    let hs := (hcontract r ω c x d y e hpre).2 res hrun
+    ⟨hs.1, hs.2, modifiedEntryEvol_speeds entry bound r ω c x d y e res hrun⟩⟩
+
+def modifiedEntryCompleteSafe (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r ω : ℝ) (c x d y e : Vec2) : SetM (Vec2 × Vec2 × Vec2 × Vec2)
+    requires ModifiedEntryContract entry bound p ∧
+      0 ≤ p ∧ 0 ≤ r ∧ C r x d y e c ∧ (r * ω) ^ 2 = ‖d‖ ^ 2 ∧
+      ‖e‖ = ‖d‖ ∧ Separated (far p r) x y
+    ensures (xr, dr, yr, er) => R ω c xr dr yr er ∧ Separated p xr yr ∧
+      ‖dr‖ = ‖d‖ ∧ ‖er‖ = ‖e‖
+    := do
+  let T := bound r ω c x d y e
+  let (st, t) ← modifiedEntryEvolSafe entry bound p r ω c x d y e
+  ensure (t = T)
+  return st
+
+def modifiedEntryPrefixSafe (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r ω : ℝ) (c x d y e : Vec2) : SetM (Vec2 × Vec2 × Vec2 × Vec2)
+    requires ModifiedEntryContract entry bound p ∧
+      0 ≤ p ∧ 0 ≤ r ∧ C r x d y e c ∧ (r * ω) ^ 2 = ‖d‖ ^ 2 ∧
+      ‖e‖ = ‖d‖ ∧ Separated (far p r) x y
+    ensures (xr, _, yr, _) => Separated p xr yr
+    := do
+  let (st, _t) ← modifiedEntryEvolSafe entry bound p r ω c x d y e
+  return st
+
+def ftrmModified' (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r : ℝ) (x₀ d₀ y₀ e₀ : Vec2) : SetM (Vec2 × Vec2 × Vec2 × Vec2 × ℝ)
+    requires ModifiedEntryContract entry bound p ∧
+      0 ≤ p ∧ 0 ≤ r ∧ ‖d₀‖ = ‖e₀‖ ∧ Separated p x₀ y₀
+    ensures (x, d, y, e, r) => 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y
+    := do
+  let mut (x, d, y, e) := (x₀, d₀, y₀, e₀)
+  let mut r := r
+  let n ← choose ℕ
+  for _ in [:n]
+      invariant _pref _suff => ModifiedEntryContract entry bound p ∧
+        0 ≤ p ∧ 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y do
+    (x, d, y, e) ← free_safe p r x d y e
+    let (ω, c, r_new) ← agree_f' p x d y e
+    r := r_new
+    let (x₀, d₀, y₀, e₀) := (x, d, y, e)
+    (x, d, y, e) ← modifiedEntryCompleteSafe entry bound p r ω c x d y e
+    (x, d, y, e) ← circ_f' p ω c x₀ d₀ y₀ e₀ x d y e
+    (x, d, y, e) ← exit_f' p ω c x d y e
+  return (x, d, y, e, r)
+
+theorem ftrmModified_eq (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r : ℝ) (x d y e : Vec2) :
+    ftrmModified entry bound p r x d y e = ftrmModified' entry bound p r x d y e := rfl
+
+@[spec] theorem ftrmModified_spec (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r : ℝ) (x d y e : Vec2) :
+    ⦃ModifiedEntryContract entry bound p ∧
+      0 ≤ p ∧ 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y⦄
+    ftrmModified entry bound p r x d y e
+    ⦃fun (xr, dr, yr, er, rr) => 0 ≤ rr ∧ ‖dr‖ = ‖er‖ ∧ Separated p xr yr⦄ :=
+  ftrmModified'.spec entry bound p r x d y e
+
+def ftrmModifiedPrefix' (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r : ℝ) (k : Fin 5) (x d y e : Vec2) : SetM (Vec2 × Vec2)
+    requires ModifiedEntryContract entry bound p ∧
+      0 ≤ p ∧ 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y
+    ensures (xr, yr) => Separated p xr yr
+    := do
+  let (x, d, y, e) ← free_safe p r x d y e
+  if k = 0 then return (x, y)
+  let (ω, c, r) ← agree_f' p x d y e
+  if k = 1 then return (x, y)
+  let (x₀, d₀, y₀, e₀) := (x, d, y, e)
+  if k = 2 then
+    let (x, _, y, _) ← modifiedEntryPrefixSafe entry bound p r ω c x d y e
+    return (x, y)
+  let (x, d, y, e) ← modifiedEntryCompleteSafe entry bound p r ω c x d y e
+  let (x, d, y, e) ← safeCirc p ω c x₀ d₀ y₀ e₀ x d y e
+  if k = 3 then return (x, y)
+  ensure (exitReady x₀ d₀ y₀ e₀ (x, d, y, e))
+  let (x, _, y, _) ← safeExit p ω c x d y e
+  return (x, y)
+
+theorem ftrmModifiedPrefix_eq (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r : ℝ) (k : Fin 5) (x d y e : Vec2) :
+    ftrmModifiedPrefix entry bound p r k x d y e =
+      ftrmModifiedPrefix' entry bound p r k x d y e := rfl
+
+@[spec] theorem ftrmModifiedPrefix_spec (entry : EntryProcedure) (bound : EntryTimeBound)
+    (p r : ℝ) (k : Fin 5) (x d y e : Vec2) :
+    ⦃ModifiedEntryContract entry bound p ∧
+      0 ≤ p ∧ 0 ≤ r ∧ ‖d‖ = ‖e‖ ∧ Separated p x y⦄
+    ftrmModifiedPrefix entry bound p r k x d y e
+    ⦃fun (xr, yr) => Separated p xr yr⦄ :=
+  ftrmModifiedPrefix'.spec entry bound p r k x d y e
+
+/-- Theorem 1 (modified entry): every complete modified FTRM run is safe whenever
+the replacement entry satisfies the bounded-time safety and tangency contract. -/
+theorem ftrm_modified_end_safe :
+    ∀ (entry : EntryProcedure) (bound : EntryTimeBound) (p r : ℝ) (x d y e : Vec2),
+      ModifiedEntryContract entry bound p →
+      0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ 0 < r ∧ Separated (far p r) x y →
+        ∀ res ∈ SetM.run (ftrmModified entry bound p r x d y e),
+          let x_res := res.1
+          let y_res := res.2.2.1
+          Separated p x_res y_res := by
+  exact fun entry bound p r x d y e hcontract ⟨hp, hde, hr, hsep⟩ res hrun =>
+    ((ftrmModified_spec entry bound p r x d y e).le_wp
+      ⟨hcontract, hp, hr.le, hde, separated_of_far p r x y hp hr.le hsep⟩ res hrun).2.2
+
+/-- Theorem 1 (modified entry), throughout: after any number of complete cycles,
+every phase prefix remains safe, including every entry time between zero and `T`. -/
+theorem ftrm_modified_throughout_safe :
+    ∀ (entry : EntryProcedure) (bound : EntryTimeBound) (p r : ℝ) (x d y e : Vec2),
+      ModifiedEntryContract entry bound p →
+      0 ≤ p ∧ ‖d‖ = ‖e‖ ∧ 0 < r ∧ Separated (far p r) x y →
+        ∀ st ∈ SetM.run (ftrmModified entry bound p r x d y e),
+        let x := st.1
+        let d := st.2.1
+        let y := st.2.2.1
+        let e := st.2.2.2.1
+        let r := st.2.2.2.2
+          ∀ k : Fin 5,
+          ∀ res ∈ SetM.run (ftrmModifiedPrefix entry bound p r k x d y e),
+            let x_res := res.1
+            let y_res := res.2
+            Separated p x_res y_res := by
+  exact fun entry bound p r x d y e hcontract ⟨hp, hde, hr, hsep⟩
+      ⟨xi, di, yi, ei, ri⟩ hrun k res hprefix =>
+    let hs := (ftrmModified_spec entry bound p r x d y e).le_wp
+      ⟨hcontract, hp, hr.le, hde, separated_of_far p r x y hp hr.le hsep⟩
+      (xi, di, yi, ei, ri) hrun
+    (ftrmModifiedPrefix_spec entry bound p ri k xi di yi ei).le_wp
+      ⟨hcontract, hp, hs.1, hs.2.1, hs.2.2⟩ res hprefix
 
 end FM09

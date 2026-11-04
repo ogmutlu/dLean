@@ -35,7 +35,7 @@ def abort : SetM α := fun _ => False
 def choose (α : Type u) : SetM α := Set.univ
 
 /-- `x ← chooseS S` nondeterministically chooses an `x ∈ S` -/
-def chooseS (S : SetM α) : SetM α := S
+def chooseS (S : Set α) : SetM α := S
 
 /-- On most cases this is not needed and `if` statements can be used instead -/
 def ensure (P : Prop) : SetM Unit := fun _ => P

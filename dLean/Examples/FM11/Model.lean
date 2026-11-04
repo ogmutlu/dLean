@@ -1,7 +1,5 @@
 import dLean.Core.QODE
 
-/-! Shared hybrid-program model for the FM11 challenge and proofs. -/
-
 open dLean
 
 namespace FM11

@@ -2,16 +2,6 @@ import dLean.Examples.FM11.Model
 import dLean.Tactic.OdeDeriv
 import Mathlib.Analysis.Calculus.LocalExtr.Basic
 
-/-!
-# FM11 local and global lane control
-
-Proofs of all four safety statements in `Challenge.lean`, following the
-stopping-distance invariant and transitivity arguments in FM11 Appendix A.
-Program composition uses intrinsic contracts and inline loop invariants.
-The shared model is imported from `Model.lean`; `Challenge.lean` is not imported.
-Comparator checks the independent proofs under the same names in namespace `FM11`.
--/
-
 open dLean
 open Std.WP
 set_option experimental.vcgen true

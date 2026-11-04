@@ -4,7 +4,7 @@ open dLean
 
 namespace ACASX
 
-/-- STTT Theorem 1; preserve the stronger region postcondition of `acasx.kyx`. -/
+/-- STTT17 Theorem 1, with the stronger postcondition (+ Limpl) from `acasx.kyx`. -/
 theorem immediate_safe :
     ∀ rp hp rv alo r h v w vlo,
       Bounds rp hp rv alo → Sense w → Limpl rp hp rv alo r h v w vlo →
@@ -14,16 +14,17 @@ theorem immediate_safe :
           let v_res := res.2.2.1
           let w_res := res.2.2.2.1
           let vlo_res := res.2.2.2.2
-          NoNMAC rp hp r_res h_res ∧ Limpl rp hp rv alo r_res h_res v_res w_res vlo_res :=
-  sorry
+          NoNMAC rp hp r_res h_res ∧
+            Limpl rp hp rv alo r_res h_res v_res w_res vlo_res := sorry
 
-/-- STTT Lemma 1 / repository `acasx.kyx`. -/
+/-- STTT17 Lemma 1, also in `acasx.kyx`. -/
 theorem immediate_regions_equivalent :
     ∀ rp hp rv alo r h v w vlo,
       Bounds rp hp rv alo → Sense w →
         (Lexpl rp hp rv alo r h v w vlo ↔ Limpl rp hp rv alo r h v w vlo) := sorry
 
-/-- STTT Theorem 2; the bundled delayed kyx also preserves its implicit region. -/
+/-- STTT17 Theorem 2, with the stronger postcondition (+ Dimpl) from
+`safe_delay_implicit.kyx` -/
 theorem delayed_safe :
     ∀ rp hp rv alo ad δ ε r h v w vlo d,
       Bounds rp hp rv alo → (0 ≤ ad ∧ 0 ≤ δ ∧ 0 ≤ ε) → Sense w →
@@ -38,15 +39,14 @@ theorem delayed_safe :
           NoNMAC rp hp r_res h_res ∧
             Dimpl rp hp rv alo ad r_res h_res v_res w_res vlo_res d_res := sorry
 
-/-- STTT Lemma 2, Fig. 5; the explicit predicate is transcribed from the journal. -/
+/-- STTT17 Lemma 2 -/
 theorem delayed_regions_equivalent :
     ∀ rp hp rv alo ad r h v w vlo d,
       Bounds rp hp rv alo → 0 ≤ ad → Sense w →
         (Dexpl rp hp rv alo ad r h v w vlo d ↔ Dimpl rp hp rv alo ad r h v w vlo d) :=
   sorry
 
-/-- STTT Theorem 3 as supplied in repository `acasxtwosided.kyx`.
-Both targets can change; `alo ≤ aup` is required. The archive postcondition is NoNMAC. -/
+/-- STTT17 Theorem 3, also in `acasxtwosided.kyx`. -/
 theorem two_sided_safe :
     ∀ rp hp rv alo aup r h v w vlo vup,
       Bounds rp hp rv alo → alo ≤ aup → Sense w →
@@ -56,11 +56,19 @@ theorem two_sided_safe :
           let h_res := res.2.1
           NoNMAC rp hp r_res h_res := sorry
 
-/-- STTT Theorem 4 as supplied in `bounded_implicit.kyx`.
-The initial clock is an arbitrary admissible elapsed time, not implicitly zero. -/
+/-- STTT17 Lemma 3 -/
+theorem two_sided_regions_equivalent :
+    ∀ rp hp rv alo aup r h v w vlo vup,
+      Bounds rp hp rv alo → alo ≤ aup → Sense w →
+        (Cexpl rp hp rv alo aup r h v w vlo vup ↔
+          Cimpl rp hp rv alo aup r h v w vlo vup) := sorry
+
+/-- STTT17 Theorem 4, with weaker precondition (`0 < aup` instead of `alo ≤ aup`) and
+stronger postcondition (+ Sense, + CimplBounded), following `bounded_implicit.kyx`.
+The paper version is equivalent to the case `t=0`. -/
 theorem bounded_safe :
     ∀ rp hp rv alo aup tl r h v w vlo vup t,
-      TwoSidedBounds rp hp rv alo aup → Sense w → (t ≤ tl ∨ tl < 0) →
+      Bounds rp hp rv alo ∧ 0 < aup → Sense w → (t ≤ tl ∨ tl < 0) →
       CimplBounded rp hp rv alo aup tl t r h v w vlo vup →
         ∀ res ∈ SetM.run (bounded rp hp rv alo aup tl r h v w vlo vup t),
           let r_res := res.1
@@ -71,11 +79,11 @@ theorem bounded_safe :
           let vup_res := res.2.2.2.2.2.1
           let t_res := res.2.2.2.2.2.2
           NoNMAC rp hp r_res h_res ∧ Sense w_res ∧ (t_res ≤ tl ∨ tl < 0) ∧
-            CimplBounded rp hp rv alo aup tl t_res r_res h_res v_res w_res vlo_res vup_res :=
-  sorry
+          CimplBounded rp hp rv alo aup tl t_res r_res h_res v_res w_res vlo_res vup_res
+            := sorry
 
-/-- STTT Theorem 5 / the generated model in `AcasXSafeable.scala`.
-This is safety and region preservation; it does not assert nonblocking or escape liveness. -/
+/-- STTT17 Theorem 5, with stronger postcondition (+ Sense, + CimplSafeable), following
+`AcasXSafeable.scala`. The paper version is equivalent to the case `t=0`. -/
 theorem safeable_safe :
     ∀ rp hp rv alo aup tl vloEx vupEx r h v w vlo vup t,
       Bounds rp hp rv alo → alo ≤ aup → 0 ≤ tl → Sense w → (t ≤ tl ∨ tl < 0) →
@@ -92,7 +100,7 @@ theorem safeable_safe :
             CimplSafeable rp hp rv alo aup tl t_res r_res h_res v_res
               w_res vlo_res vloEx vup_res vupEx := sorry
 
-/-- STTT Proposition 1, Eq. (11); no extra nonzero-speed assumption. -/
+/-- STTT17 Proposition 1 -/
 theorem horizontal_reduction :
     ∀ rp rx ry rv x y s n,
       HorizontalCoordinates rx ry rv x y s n →
